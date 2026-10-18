@@ -247,15 +247,160 @@ curl -I http://10.1.100.13
 
 <img width="1147" height="718" alt="image" src="https://github.com/user-attachments/assets/a6e20936-8595-46b3-a2ae-0f52b6450db6" />
 
+#### Давайте превратим эти два пустых веб-сервера в настоящую отказоустойчивую систему
+
+##### 1. Обновим страницы index.html на обоих серверах, чтобы они стали уникальными. Это поможет нам наглядно увидеть, как работает балансировщик.
+##### 2. Настроим балансировку трафика на текущей управляющей машине (centpca), чтобы она распределяла запросы между 10.1.100.12 и 10.1.100.13.
+
+##### Этап 1: Установка уникальных веб-страниц
+
+Мы напишем плейбук, который автоматически сгенерирует для каждого сервера свою страницу, используя встроенную переменную Ansible с именем хоста (ansible_hostname) и его IP-адресом.
+##### 1. Создайте сценарий для обновления страниц:
+```bash
+cat << 'EOF' > /etc/ansible/update_web.yml
+---
+- name: Обновление контента веб-страниц
+  hosts: servers
+  become: yes
+  tasks:
+
+    - name: Создание уникального index.html для каждого сервера
+      copy:
+        dest: /usr/share/nginx/html/index.html
+        content: |
+          <html>
+          <body>
+            <h1>Привет от Ansible!</h1>
+            <h2>Сервер: {{ ansible_hostname }}</h2>
+            <p>Управляемый IP-адрес: {{ inventory_hostname }}</p>
+          </body>
+          </html>
+...
+EOF
+```
+##### 2. Запустите его:
+```bash
+ansible-playbook /etc/ansible/update_web.yml
+```
+
+<img width="1071" height="241" alt="image" src="https://github.com/user-attachments/assets/12752f16-3a33-45af-92ef-ab01153a38e1" />
 
 
+##### Этап 2: Настройка балансировщика трафика на centpca
+Так как на вашей управляющей машине centpca уже подключен работающий репозиторий nginx, мы установим и настроим Nginx прямо на ней. Он будет выступать в роли Reverse Proxy (Load Balancer) по алгоритму Round-Robin (запросы будут уходить по очереди то на один сервер, то на другой).
 
+##### 1. Установите Nginx на управляющей машине (centpca), если он еще не установлен (у меня установлен):
+```bash
+yum install nginx -y
+```
+##### 2. Создайте конфигурационный файл балансировщика:
+Замените содержимое главного конфигурационного файла Nginx на centpca следующим блоком. Он объединит ваши серверы в пул под названием backend_servers:
+```bash
+cat << 'EOF' > /etc/nginx/nginx.conf
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
 
+include /usr/share/nginx/modules/*.conf;
 
+events {
+    worker_connections 1024;
+}
 
+http {
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
 
+    access_log  /var/log/nginx/access.log  main;
 
+    sendfile            on;
+    tcp_nopush          on;
+    tcp_nodelay         on;
+    keepalive_timeout   65;
+    types_hash_max_size 4096;
 
+    include             /etc/nginx/mime.types;
+    default_type        application/octet-stream;
+
+    # Пул удаленных серверов для распределения нагрузки
+    upstream backend_servers {
+        server 10.1.100.12:80 weight=1;
+        server 10.1.100.13:80 weight=1;
+    }
+
+    server {
+        listen       80 default_server;
+        server_name  _;
+
+        # Проксирование трафика на пул
+        location / {
+            proxy_pass http://backend_servers;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+    }
+}
+EOF
+```
+##### 3. Запустите и включите Nginx на машине centpca:
+```bash
+systemctl start nginx
+systemctl enable nginx
+```
+##### 4. Откройте порт 80 на самом балансировщике centpca (у меня открыт):
+```bash
+firewall-cmd --permanent --add-service=http
+firewall-cmd --reload
+```
+<img width="1074" height="108" alt="image" src="https://github.com/user-attachments/assets/2935ff3d-b5d9-4aff-bdfb-e01375e56ba4" />
+
+> - По умолчанию система безопасности SELinux запрещает Nginx осуществлять сетевые запросы и проксировать трафик на другие IP-адреса. Фаервол порты открыл, а SELinux блокирует сам процесс изнутри.
+
+*Разрешение проксирования в SELinux*
+
+Выполните команду на машине centpca, чтобы разрешить Nginx подключаться к удаленным серверам:
+```bash
+setsebool -P httpd_can_network_connect 1
+```
+*Очистка дефолтных страниц Nginx*
+```bash
+mv /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.bak 2>/dev/null
+```
+*Перезапуск балансировщика*
+
+Перезапустите веб-сервер, чтобы применить настройки:
+```bash
+systemctl restart nginx
+```
+После выполнения этих шагов локальная заглушка уйдет, и балансировщик начнет опрашивать удаленные хосты. Проверьте чередование серверов командами:
+```bash
+curl -s http://localhost | grep "IP-адрес:"
+curl -s http://localhost | grep "IP-адрес:"
+curl -s http://localhost | grep "IP-адрес:"
+```
+
+<img width="1115" height="545" alt="image" src="https://github.com/user-attachments/assets/2eafc8d5-8bc3-4f12-8e58-adb0a626994a" />
+
+#### Проверка отказоустойчивости
+
+Чтобы вживую увидеть, как Nginx справляется с авариями, вы можете провести простой эксперимент:
+##### 1. Остановите веб-сервер на одном из хостов с помощью Ansible прямо из терминала:
+```bash
+ansible 10.1.100.13 -m service -a "name=nginx state=stopped" --become
+```
+<img width="1112" height="228" alt="image" src="https://github.com/user-attachments/assets/2a60c879-7bb8-43dc-80f7-099d5164e5bc" />
+
+Вы заметите, что балансировщик на секунду задумается (пытаясь достучаться до упавшего сервера), поймет, что тот недоступен, и выдаст вам страницу с живого хоста 10.1.100.12. Ошибки 502 или 404 пользователь не увидит — балансировщик автоматически спасет ситуацию!
+
+После этого сервер можно будет вернуть в строй командой:
+```bash
+ansible 10.1.100.13 -m service -a "name=nginx state=started" --become
+```
+
+<img width="1133" height="374" alt="image" src="https://github.com/user-attachments/assets/365ea64c-32c8-460a-903b-374c6d9df93a" />
 
 
 
