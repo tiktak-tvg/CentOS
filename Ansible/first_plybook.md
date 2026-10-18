@@ -187,3 +187,78 @@ ansible servers -m ping
 
 <img width="1068" height="1051" alt="image" src="https://github.com/user-attachments/assets/d21bb88d-7ec0-48b8-b206-2c85b8a8c32d" />
 
+
+#### Как проверить работу Nginx?
+
+Можно быстро убедиться, что веб-серверы отдают дефолтную страницу. Выполните команду проверки HTTP-ответа с управляющего сервера:
+```bash
+curl -I http://10.1.100.12
+curl -I http://10.1.100.13
+```
+Должны увидеть в первой строке ответа ``HTTP/1.1 200 OK и строку Server: nginx/....``
+
+<img width="1093" height="214" alt="image" src="https://github.com/user-attachments/assets/e06d0dfa-ca0b-476b-833b-ec11d0245c4c" />
+
+Проверка первого хоста (10.1.100.12) прошла отлично — мы видим успешный ответ ``HTTP/1.1 200 OK от веб-сервера Nginx/1.26.1.``
+
+Ошибка curl: (7) Failed connect to 10.1.100.13:80; Нет маршрута до узла (No route to host) на втором хосте указывает на то, что сетевой пакет не может дойти до веб-сервера.<br> 
+Поскольку сам Ansible успешно подключается к этой машине по SSH для выполнения плейбука, сетевой уровень работает.<br>
+В CentOS причиной этой ошибки почти всегда является активный встроенный межсетевой экран (Firewalld), который по умолчанию блокирует весь входящий веб-трафик на порт 80 (HTTP).<br>
+Чтобы решить эту проблему, нужно открыть порт в фаерволе на удаленном хосте. Мы можем сделать это централизованно прямо через Ansible.<br>
+
+#### Открытие портов через Ansible
+##### 1. Создайте файл сценария для настройки фаервола:
+```bash
+cat << 'EOF' > /etc/ansible/fix_firewall.yml
+---
+- name: Открытие портов для веб-сервера
+  hosts: servers
+  become: yes
+  tasks:
+
+    - name: Разрешить входящий трафик HTTP (порт 80)
+      firewalld:
+        service: http
+        permanent: yes
+        state: enabled
+
+    - name: Разрешить входящий трафик HTTPS (порт 443, на будущее)
+      firewalld:
+        service: https
+        permanent: yes
+        state: enabled
+
+    - name: Перезапустить службу firewalld для применения правил
+      service:
+        name: firewalld
+        state: restarted
+...
+EOF
+```
+##### 2. Запустите этот сценарий:
+```bash
+ansible-playbook /etc/ansible/fix_firewall.yml
+```
+##### 3. Повторная проверка
+После того как Ansible применит правила межсетевого экрана, выполняем проверку еще раз:
+```bash
+curl -I http://10.1.100.13
+```
+
+<img width="1147" height="718" alt="image" src="https://github.com/user-attachments/assets/a6e20936-8595-46b3-a2ae-0f52b6450db6" />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
