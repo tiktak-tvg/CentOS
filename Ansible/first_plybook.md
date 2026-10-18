@@ -402,8 +402,127 @@ ansible 10.1.100.13 -m service -a "name=nginx state=started" --become
 
 <img width="1133" height="374" alt="image" src="https://github.com/user-attachments/assets/365ea64c-32c8-460a-903b-374c6d9df93a" />
 
+#### Давайте реализуем продвинутую проверку доступности (Health Checks) и переведем наш плейбук на профессиональный инструмент автоматизации — динамические шаблоны Jinja2 (template).
+Это позволит сделать систему по-настоящему отказоустойчивой, чтобы балансировщик мгновенно исключал упавшие серверы из пула, а файлы конфигурации генерировались автоматически.
 
 
+##### Этап 1. Перевод балансировщика на Health Checks
 
+Стандартный Nginx умеет проверять статус серверов прямо "из коробки" с помощью параметров max_fails (сколько ошибок допускается) и fail_timeout (время, на которое сервер исключается из пула).
+
+Давайте перезапишем конфигурацию Nginx на управляющей машине centpca с этими параметрами:
+```bash
+cat << 'EOF' > /etc/nginx/nginx.conf
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
+
+include /usr/share/nginx/modules/*.conf;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include             /etc/nginx/mime.types;
+    default_type        application/octet-stream;
+
+    sendfile            on;
+    keepalive_timeout   65;
+
+    # Умный пул балансировки с проверкой доступности
+    upstream backend_servers {
+        server 10.1.100.12:80 weight=1 max_fails=2 fail_timeout=10s;
+        server 10.1.100.13:80 weight=1 max_fails=2 fail_timeout=10s;
+    }
+
+    server {
+        listen       80 default_server;
+        server_name  _;
+
+        location / {
+            proxy_pass http://backend_servers;
+            proxy_next_upstream error timeout invalid_header http_502 http_503 http_504;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+    }
+}
+EOF
+```
+Примените настройки:
+```bash
+systemctl restart nginx
+```
+теперь, если один из серверов вернет ошибку 502 или timeout хотя бы 2 раза, Nginx на 10 секунд полностью перестанет слать туда запросы, отдавая трафик только живому серверу.
+
+##### Этап 2. Создание динамического шаблона Jinja2 в Ansible
+
+Вместо того чтобы жестко прописывать текст веб-страницы внутри плейбука (как мы делали в модуле copy), профессионалы используют модуль template и файлы с расширением .j2. Это позволяет использовать циклы, условия и любые переменные Linux.
+##### 1. Создадим красивый шаблон будущей страницы:
+```bash
+mkdir -p /etc/ansible/templates
+cat << 'EOF' > /etc/ansible/templates/index.html.j2
+<html>
+<head>
+    <title>Ansible Managed Node</title>
+</head>
+<body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; color: #333; margin: 0; padding: 50px; text-align: center;">
+    <div style="background: white; max-width: 600px; margin: auto; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+        <h1 style="color: #4b6cb7;">🚀 Нода под управлением Ansible</h1>
+        <hr style="border: 0; height: 1px; background: #eee; margin: 20px 0;">
+        <p style="font-size: 18px;">Привет! Этот файл сгенерирован автоматически.</p>
+        
+        <table style="width: 100%; text-align: left; margin-top: 20px; border-collapse: collapse;">
+            <tr style="background: #f8f9fa;"><th style="padding: 10px;">Параметр</th><th style="padding: 10px;">Значение</th></tr>
+            <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">Имя хоста:</td><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #e91e63;">{{ ansible_hostname }}</td></tr>
+            <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">IP-адрес:</td><td style="padding: 10px; border-bottom: 1px solid #eee; font-family: monospace;">{{ inventory_hostname }}</td></tr>
+            <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">ОС сервера:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">{{ ansible_distribution }} {{ ansible_distribution_version }}</td></tr>
+            <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">Ядер CPU:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">{{ ansible_processor_vcpus }}</td></tr>
+        </table>
+        
+        <p style="margin-top: 30px; font-size: 12px; color: #999;">Время сборки конфигурации: 2026 год</p>
+    </div>
+</body>
+</html>
+EOF
+```
+##### 2. Создадим новый плейбук, использующий этот шаблон:
+```bash
+cat << 'EOF' > /etc/ansible/deploy_template.yml
+---
+- name: Деплой динамического веб-контента через шаблоны
+  hosts: servers
+  become: yes
+  tasks:
+
+    - name: Генерация index.html из шаблона Jinja2
+      template:
+        src: templates/index.html.j2
+        dest: /usr/share/nginx/html/index.html
+...
+EOF
+```
+##### 3. Запустите деплой:
+```bash
+ansible-playbook /etc/ansible/deploy_template.yml
+```
+
+##### Тестирование новой конфигурации
+
+Когда плейбук завершится, сделайте запрос к балансировщику:
+```bash
+curl -s http://localhost | grep -E "Имя хоста:|ОС сервера:"
+```
+Вы увидите, что Ansible не просто скопировал текст, а собрал с каждого сервера его индивидуальные технические характеристики (версию ОС, количество ядер) и зашил их прямо в код страницы.
+
+<img width="1229" height="331" alt="image" src="https://github.com/user-attachments/assets/e1b9197a-709b-49a2-a5df-e7d11b5e333d" />
+
+В выводе четко видно, что Ansible зашел на удаленный сервер, собрал его системные факты (имя хоста centpc1 и операционную систему CentOS 7.9) и на лету подставил их в HTML-структуру. 
+
+Балансировщик Nginx принял этот трафик и корректно отдал его вам.
+
+Вы создали полноценную, автоматизированную инфраструктуру с балансировкой нагрузки, динамическим деплоем контента и умными проверками доступности.
 
 
