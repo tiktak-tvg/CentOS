@@ -66,6 +66,3 @@ ls -lh /backups/
 • backup-centpc1-2026-10-19.tar.gz
 • backup-localhost-2026-10-19.tar.gz
 
-
-
-<img width="3440" height="1440" alt="image" src="https://github.com/user-attachments/assets/0a2ca06a-2c80-4e68-95f2-6566f87850ea" />
