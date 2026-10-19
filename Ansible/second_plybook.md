@@ -60,9 +60,12 @@ ansible-playbook /etc/ansible/second_playbook.yml
 ```bash
 ls -lh /backups/
 ```
-
-<img width="1123" height="89" alt="image" src="https://github.com/user-attachments/assets/0068b3e0-414c-4540-9a55-ba23f5b319fa" />
+<img width="1063" height="430" alt="image" src="https://github.com/user-attachments/assets/72a46124-7b8d-47d7-aa2d-c0168e05e28a" />
 
 Вы увидите два готовых архива, например:
 • backup-centpc1-2026-10-19.tar.gz
 • backup-localhost-2026-10-19.tar.gz
+
+
+
+<img width="3440" height="1440" alt="image" src="https://github.com/user-attachments/assets/0a2ca06a-2c80-4e68-95f2-6566f87850ea" />
