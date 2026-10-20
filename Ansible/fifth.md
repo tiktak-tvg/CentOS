@@ -14,9 +14,13 @@
 
 <img width="1199" height="569" alt="image" src="https://github.com/user-attachments/assets/72d37b09-23a0-4198-9535-da9373c06185" />
 
-<img width="1373" height="558" alt="image" src="https://github.com/user-attachments/assets/9b40d5a3-09a8-4597-9480-ca80bcd57fe8" />
+---
 
 <img width="1373" height="553" alt="image" src="https://github.com/user-attachments/assets/f244aa1c-8cad-45d1-8c3a-03b72a07c74a" />
+
+---
+
+<img width="1373" height="558" alt="image" src="https://github.com/user-attachments/assets/9b40d5a3-09a8-4597-9480-ca80bcd57fe8" />
 
 #### Предварительные условия
 Хост	IP	Роль
