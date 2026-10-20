@@ -1,16 +1,17 @@
 ### ЧАСТЬ 0. Предварительные условия (руками, до Ansible)
 Эти шаги не автоматизируются плейбуком — их надо сделать один раз на каждом хосте.
 
-0.1. Управляющая машина centpca
-bash
+##### 0.1. Управляющая машина centpca
+```bash
 # Установить Ansible
 yum install -y epel-release
-yum install -y ansible
+yum ins
 
 # Проверить версию (должна быть 2.9+)
 ansible --version
-0.2. Все три хоста (.12, .14, centpca)
-bash
+```
+##### 0.2. Все три хоста (.12, .14, centpca)
+```bash
 # Отключить SELinux (или оставить Enforcing — роль deploy_app ставит seboolean)
 # Если оставляете Enforcing — ничего не делайте, роль справится.
 # Если отключаете:
@@ -23,8 +24,9 @@ systemctl enable --now firewalld
 # Убедиться, что hostname корректный (для шаблона Jinja2)
 hostnamectl set-hostname centpc1   # на .12
 hostnamectl set-hostname centpc3   # на .14
-0.3. SSH-ключи с centpca на .12 и .14
-bash
+```
+##### 0.3. SSH-ключи с centpca на .12 и .14
+```bash
 # На centpca
 ssh-keygen -t rsa -b 2048 -N "" -f ~/.ssh/id_rsa
 
@@ -35,24 +37,28 @@ ssh-copy-id root@10.1.100.14
 # Проверить, что заходит без пароля
 ssh root@10.1.100.12 'hostname'
 ssh root@10.1.100.14 'hostname'
-0.4. Инвентарь /etc/ansible/hosts
-ini
+```
+##### 0.4. Инвентарь /etc/ansible/hosts
+```ini
 [servers]
 10.1.100.12 ansible_user=root
 10.1.100.14 ansible_user=root
-0.5. Проверка связности
-bash
+```
+#### 0.5. Проверка связности
+```bash
 ansible servers -m ping
 # Ожидаемо: оба хоста → SUCCESS
+```
 Если ping не проходит — дальше идти нельзя. Разбирайтесь с SSH/ключами/сетью.
 
-ЧАСТЬ 1. Структура ролей (создать один раз)
-bash
+#### ЧАСТЬ 1. Структура ролей (создать один раз)
+```bash
 mkdir -p /etc/ansible/roles/{webserver,backup,security,docker,deploy_app,loadbalancer,syslog}/{tasks,templates,handlers,defaults}
 mkdir -p /etc/ansible/roles/webserver/templates
-ЧАСТЬ 2. Конфиги Ansible (по порядку)
-2.1. site.yml — главный плейбук
-bash
+```
+#### ЧАСТЬ 2. Конфиги Ansible (по порядку)
+##### 2.1. site.yml — главный плейбук
+```bash
 cat <<'EOF' > /etc/ansible/site.yml
 ---
 - name: Комплексная настройка веб-кластера, безопасности и Docker
@@ -68,11 +74,12 @@ cat <<'EOF' > /etc/ansible/site.yml
     - syslog
 ...
 EOF
+```
 Порядок критичен: webserver (шаблон) → deploy_app (монтирует его в контейнер) → loadbalancer (VRRP + порты).
 
-2.2. Роль webserver
+##### 2.2. Роль webserver
 roles/webserver/tasks/main.yml
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/webserver/tasks/main.yml
 ---
 - name: Установка веб-сервера nginx
@@ -93,8 +100,9 @@ cat <<'EOF' > /etc/ansible/roles/webserver/tasks/main.yml
     enabled: yes
 ...
 EOF
+```
 roles/webserver/templates/index.html.j2
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/webserver/templates/index.html.j2
 <html>
 <head>
@@ -119,9 +127,10 @@ cat <<'EOF' > /etc/ansible/roles/webserver/templates/index.html.j2
 </body>
 </html>
 EOF
-2.3. Роль backup
+```
+##### 2.3. Роль backup
 roles/backup/tasks/main.yml
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/backup/tasks/main.yml
 ---
 - name: Создание директории для хранения локальных бэкапов на сервере
@@ -148,9 +157,10 @@ cat <<'EOF' > /etc/ansible/roles/backup/tasks/main.yml
     job: "/usr/local/bin/backup_web.sh"
 ...
 EOF
-2.4. Роль security
+```
+##### 2.4. Роль security
 roles/security/tasks/main.yml
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/security/tasks/main.yml
 ---
 - name: Отключение авторизации по паролям в SSH (разрешаем только ключи)
@@ -170,8 +180,9 @@ cat <<'EOF' > /etc/ansible/roles/security/tasks/main.yml
   notify: restart sshd
 ...
 EOF
+```
 roles/security/handlers/main.yml
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/security/handlers/main.yml
 ---
 - name: restart sshd
@@ -180,9 +191,10 @@ cat <<'EOF' > /etc/ansible/roles/security/handlers/main.yml
     state: restarted
 ...
 EOF
-2.5. Роль docker
+```
+##### 2.5. Роль docker
 roles/docker/tasks/main.yml
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/docker/tasks/main.yml
 ---
 - name: Добавление официального репозитория Docker CE
@@ -218,9 +230,10 @@ cat <<'EOF' > /etc/ansible/roles/docker/tasks/main.yml
     mode: '0755'
 ...
 EOF
-2.6. Роль deploy_app — ключевая (все фиксы здесь)
+```
+##### 2.6. Роль deploy_app — ключевая (все фиксы здесь)
 roles/deploy_app/tasks/main.yml
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/deploy_app/tasks/main.yml
 ---
 # tasks file for deploy_app
@@ -329,9 +342,10 @@ cat <<'EOF' > /etc/ansible/roles/deploy_app/tasks/main.yml
   failed_when: container_serves_template.rc != 0
 ...
 EOF
-2.7. Роль loadbalancer — ключевая (VRRP + порты)
+```
+##### 2.7. Роль loadbalancer — ключевая (VRRP + порты)
 roles/loadbalancer/tasks/main.yml
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/loadbalancer/tasks/main.yml
 ---
 # tasks file for loadbalancer (HAProxy + Keepalived VIP)
@@ -511,9 +525,10 @@ cat <<'EOF' > /etc/ansible/roles/loadbalancer/tasks/main.yml
   tags: loadbalancer
 ...
 EOF
-2.8. Роль syslog
+```
+##### 2.8. Роль syslog
 roles/syslog/tasks/main.yml
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/syslog/tasks/main.yml
 ---
 - name: Конфигурация Rsyslog как Центрального Сервера (Приемника)
@@ -571,17 +586,19 @@ cat <<'EOF' > /etc/ansible/roles/syslog/handlers/main.yml
     state: restarted
 ...
 EOF
-ЧАСТЬ 3. Запуск
-bash
+```
+#### ЧАСТЬ 3. Запуск
+```bash
 # 1. Проверить синтаксис
 ansible-playbook /etc/ansible/site.yml --syntax-check
 
 # 2. Запустить всё с нуля
 ansible-playbook /etc/ansible/site.yml
+```
 Ожидаемо в PLAY RECAP: failed=0 на обоих хостах. Первый прогон будет changed=много (всё создаётся с нуля). Второй прогон — changed=мало (идемпотентность).
 
-ЧАСТЬ 4. Финальные проверки
-bash
+#### ЧАСТЬ 4. Финальные проверки
+```bash
 # 1. Оба backend'а UP
 ansible servers -m shell -a "echo 'show stat' | socat stdio /var/run/haproxy.sock | cut -d, -f1,2,18"
 # Ожидаемо: web_node1,UP / web_node2,UP
@@ -605,30 +622,29 @@ ansible servers -m shell -a "firewall-cmd --list-ports; firewall-cmd --list-rich
 # 6. Шаблон через контейнер
 ansible servers -m shell -a "curl -s http://127.0.0.1:8080 | grep 'Имя хоста:'"
 # Ожидаемо: centpc1 / centpc3
+```
 Сводка: что делает каждая роль
-Роль	Что делает	Ключевые фиксы
-webserver	Ставит nginx, генерирует index.html из Jinja2	Шаблон в /usr/share/nginx/html
-backup	/var/backups/web, скрипт, cron 03:30	—
-security	SSH: только ключи, root не логинится	—
-docker	Docker CE, Compose	—
-deploy_app	Контейнер nginx:1.21 с монтированием шаблона, nginx :81 → :8080	volumes, recreate, удаление docker-py, requests<2.28
-loadbalancer	HAProxy roundrobin, Keepalived VIP, stats	VRRP в firewalld, порт 81, порт 8404, psmisc, socat, stats socket
-syslog	rsyslog сервер/клиент, логи HAProxy	—
+Роль	| Что делает	| Ключевые фиксы
+------|----------_--|-----------------
+webserver | Ставит nginx, генерирует index.html из Jinja2 | 	Шаблон в /usr/share/nginx/html
+backup	 | /var/backups/web, скрипт, cron 03:30	 | —
+security	 | SSH: только ключи, root не логинится	 | —
+docker	 | Docker CE, Compose | 	—
+deploy_app	 | Контейнер nginx:1.21 с монтированием шаблона,  | nginx :81 → :8080	volumes, recreate, удаление docker-py, requests<2.28
+loadbalancer	 | HAProxy roundrobin, Keepalived VIP, stats	VRRP в firewalld, порт 81, порт 8404, psmisc, socat, stats socket
+syslog	 | rsyslog сервер/клиент, логи HAProxy	—
+
 Что не автоматизировано (руками, один раз)
-SSH-ключи с centpca на .12 и .14 — ssh-copy-id
-
-Ansible установлен на centpca
-
-Инвентарь /etc/ansible/hosts создан
-
-Hostname на хостах (centpc1, centpc3) — для шаблона Jinja2
-
-firewalld запущен на хостах (роль его запустит, но если он не установлен — yum install firewalld вручную)
+- SSH-ключи с centpca на .12 и .14 — ssh-copy-id
+- Ansible установлен на centpca
+- Инвентарь /etc/ansible/hosts создан
+- Hostname на хостах (centpc1, centpc3) — для шаблона Jinja2
+- firewalld запущен на хостах (роль его запустит, но если он не установлен — yum install firewalld вручную)
 
 Всё остальное — ansible-playbook /etc/ansible/site.yml с нуля за один прогон.
 
 Порядок действий «с нуля» (кратко)
-text
+```text
 1. yum install -y epel-release ansible           (на centpca)
 2. ssh-keygen + ssh-copy-id на .12 и .14        (на centpca)
 3. hostnamectl set-hostname centpc1/centpc3     (на хостах)
@@ -637,4 +653,5 @@ text
 6. Создать все файлы ролей (cat <<'EOF' выше)   (на centpca)
 7. ansible-playbook /etc/ansible/site.yml       (запуск)
 8. Проверки (curl, socat, ip addr)              (на centpca)
+```
 После этого стенд работает: балансировка, отказоустойчивость, stats, шаблон Jinja2 через VIP.
