@@ -41,6 +41,9 @@ cat << 'EOF' > /etc/ansible/roles/webserver/tasks/main.yml
     enabled: yes
 EOF
 ```
+
+<img width="1104" height="364" alt="image" src="https://github.com/user-attachments/assets/b822219b-88b7-49b3-b433-37d0349ac0fc" />
+
 ##### 2. Перенесем наш шаблон Jinja2 внутрь роли:
 ```bash
 mkdir -p /etc/ansible/roles/webserver/templates
@@ -59,9 +62,9 @@ EOF
 ##### Шаг 3. Создание главного плейбука (Main Playbook)
 Теперь наш главный файл сценария станет удивительно коротким и понятным. Вместо описания десятков задач мы просто укажем, какую роль применить к серверам.
 
-Создайте файл /etc/ansible/site.yml:
+Создайте файл /etc/ansible/sitewebserver.yml:
 ```bash
-cat << 'EOF' > /etc/ansible/site.yml
+cat << 'EOF' > /etc/ansible/sitewebserver.yml
 ---
 - name: Применение конфигурации веб-серверов через роли
   hosts: servers
@@ -71,11 +74,17 @@ cat << 'EOF' > /etc/ansible/site.yml
 ...
 EOF
 ```
+
+<img width="1157" height="211" alt="image" src="https://github.com/user-attachments/assets/6f821292-24b9-43c6-a224-a8121abd420c" />
+
 ##### Шаг 4. Запуск
 Запустите ваш новый структурированный плейбук:
 ```bash
-ansible-playbook /etc/ansible/site.yml
+ansible-playbook /etc/ansible/sitewebserver.yml
 ```
+
+<img width="1107" height="494" alt="image" src="https://github.com/user-attachments/assets/c6c83caa-afde-4246-a68e-5a649d459af3" />
+
 
 > В чем главный плюс такого подхода?
 > - Если завтра вам понадобится добавить еще 10 серверов или развернуть аналогичный веб-сервер в другом проекте, вам не придется копировать куски YAML-кода. Вы просто подключите готовую роль webserver одной строкой в любом новом плейбуке.
@@ -113,7 +122,7 @@ EOF
 ##### 3. Переопределим переменную в главном плейбуке:
 Теперь в файле site.yml мы можем легко переписать этот заголовок для нашей текущей инфраструктуры. Изменим файл:
 ```bash
-cat << 'EOF' > /etc/ansible/site.yml
+cat << 'EOF' > /etc/ansible/sitewebserver.yml
 ---
 - name: Применение конфигурации веб-серверов через роли
   hosts: servers
@@ -127,9 +136,10 @@ EOF
 ```
 ##### 4. Запустите плейбук повторно:
 ```bash
-ansible-playbook /etc/ansible/site.yml
+ansible-playbook /etc/ansible/sitewebserver.yml
 ```
 
+<img width="1114" height="527" alt="image" src="https://github.com/user-attachments/assets/97e238f0-fc50-4bdb-8e6e-7558c26f3f58" />
 
 
 
