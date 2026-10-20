@@ -54,7 +54,7 @@ VIP	 |10.1.100.100	 |плавающий адрес
     - syslog
 ...
 ```
-Порядок ролей критичен: webserver (генерирует шаблон) → deploy_app (монтирует его в контейнер) → loadbalancer (VRRP, порты).
+Порядок ролей критичен: **webserver** (генерирует шаблон) → **deploy_app** (монтирует его в контейнер) → **loadbalancer** (VRRP, порты).
 
 ##### 3. Роль webserver — /etc/ansible/roles/webserver/tasks/main.yml
 ```yaml
@@ -77,7 +77,7 @@ VIP	 |10.1.100.100	 |плавающий адрес
     enabled: yes
 ...
 ```
-Шаблон /etc/ansible/roles/webserver/templates/index.html.j2
+Шаблон **/etc/ansible/roles/webserver/templates/index.html.j2**
 ```html
 <html>
 <head>
@@ -148,8 +148,9 @@ VIP	 |10.1.100.100	 |плавающий адрес
     state: present
   notify: restart sshd
 ...
-Хэндлер /etc/ansible/roles/security/handlers/main.yml
-yaml
+```
+Хэндлер **/etc/ansible/roles/security/handlers/main.yml**
+```yaml
 ---
 - name: restart sshd
   service:
@@ -304,7 +305,7 @@ yaml
 ...
 ```
 ##### 8. Роль loadbalancer — /etc/ansible/roles/loadbalancer/tasks/main.yml
-Вторая ключевая роль — VRRP, порт 81, порт 8404, psmisc, socat, stats socket.
+Вторая ключевая роль — **VRRP, порт 81, порт 8404, psmisc, socat, stats socket**.
 
 ```yaml
 ---
@@ -531,8 +532,9 @@ yaml
     name: haproxy
     state: restarted
 ...
-Хэндлер /etc/ansible/roles/syslog/handlers/main.yml
-yaml
+```
+Хэндлер **/etc/ansible/roles/syslog/handlers/main.yml**
+```yaml
 ---
 - name: restart rsyslog
   service:
@@ -551,21 +553,21 @@ ansible-playbook /etc/ansible/site.yml --syntax-check
 # 3. Запустить всё
 ansible-playbook /etc/ansible/site.yml
 ```
-Что произойдёт по порядку:
+##### Что произойдёт по порядку:
 
-webserver — ставит nginx, генерирует /usr/share/nginx/html/index.html из Jinja2-шаблона
+**webserver** — ставит nginx, генерирует /usr/share/nginx/html/index.html из Jinja2-шаблона
 
-backup — создаёт /var/backups/web, скрипт, cron в 03:30
+**backup** — создаёт /var/backups/web, скрипт, cron в 03:30
 
-security — SSH: только ключи, root не логинится по паролю
+**security** — SSH: только ключи, root не логинится по паролю
 
-docker — ставит Docker CE, запускает
+**docker** — ставит Docker CE, запускает
 
-deploy_app — удаляет docker-py, ставит docker==4.4.4, запускает контейнер с монтированием /usr/share/nginx/html:ro, настраивает nginx :81 → :8080
+**deploy_app** — удаляет docker-py, ставит docker==4.4.4, запускает контейнер с монтированием /usr/share/nginx/html:ro, настраивает nginx :81 → :8080
 
-loadbalancer — VRRP в firewalld, порт 81, порт 8404, HAProxy roundrobin, Keepalived MASTER/BACKUP
+**loadbalancer** — VRRP в firewalld, порт 81, порт 8404, HAProxy roundrobin, Keepalived MASTER/BACKUP
 
-syslog — rsyslog сервер на .12, клиент на .14, логи HAProxy в /var/log/haproxy.log
+**syslog** — rsyslog сервер на .12, клиент на .14, логи HAProxy в /var/log/haproxy.log
 
 ##### 11. Финальные проверки
 ```bash
@@ -573,19 +575,42 @@ syslog — rsyslog сервер на .12, клиент на .14, логи HAProx
 ansible servers -m shell -a "echo 'show stat' | socat stdio /var/run/haproxy.sock | cut -d, -f1,2,18"
 # Ожидаемо: web_node1,UP / web_node2,UP
 
+<img width="1115" height="278" alt="image" src="https://github.com/user-attachments/assets/e283a9e7-5348-4f8e-9dd4-e2df041862dc" />
+
 # 2. VIP на MASTER
 ansible servers -m shell -a "ip addr show ens33 | grep 10.1.100.100 || echo NO_VIP"
 # Ожидаемо: на .12 — VIP, на .14 — NO_VIP
 
+<img width="1091" height="104" alt="image" src="https://github.com/user-attachments/assets/5a54c910-99a6-479d-9099-28d72d132772" />
+
 # 3. Балансировка через VIP
 for i in 1 2 3 4 5 6; do curl -s http://10.1.100.100 | grep -oP 'Имя хоста: <b>\K[^<]+'; done
-# Ожидаемо: centpc1 / centpc3 / centpc1 / centpc3 / ...
+# Ожидаемо:
+[root@centpca ~]# for i in 1 2 3 4 5 6; do curl -s http://10.1.100.100 | grep -oP 'Имя хоста: <b>\K[^<]+'; done
+centpc1
+centpc3
+centpc1
+centpc3
+centpc1
+centpc3
+[root@centpca ~]#
 
 # 4. Stats в браузере
 curl -s http://10.1.100.12:8404/stats | grep web_node
 # Ожидаемо: оба UP
 
+<img width="1143" height="338" alt="image" src="https://github.com/user-attachments/assets/767c2373-3eff-43d8-8c53-d00dbea640fb" />
+
 # 5. Firewalld
 ansible servers -m shell -a "firewall-cmd --list-ports; firewall-cmd --list-rich-rules"
 # Ожидаемо: 81/tcp 8404/tcp + rule protocol value="vrrp" accept
+Если нет, добавить
+ansible servers -m shell -a "firewall-cmd --permanent --add-port=8404/tcp && firewall-cmd --reload"
+ansible servers -m shell -a "firewall-cmd --permanent --add-port=81/tcp && firewall-cmd --reload"
+ansible servers -m shell -a "firewall-cmd --list-all | grep -E 'ports|services'"
+
+<img width="1105" height="196" alt="image" src="https://github.com/user-attachments/assets/4edfa6f4-1992-4574-8b1d-fb40975df9cf" />
+
+Удаление, если ошиблись
+ansible servers -m shell -a "firewall-cmd --permanent --remove-port=8484/tcp && firewall-cmd --reload"
 ```
