@@ -23,20 +23,23 @@
 <img width="1373" height="558" alt="image" src="https://github.com/user-attachments/assets/9b40d5a3-09a8-4597-9480-ca80bcd57fe8" />
 
 #### Предварительные условия
-Хост	IP	Роль
-centpca	—	управляющая машина (Ansible)
-centpc1	10.1.100.12	MASTER Keepalived + веб-узел
-centpc3	10.1.100.14	BACKUP Keepalived + веб-узел
-VIP	10.1.100.100	плавающий адрес
+Хост	  |IP	                          |Роль
+--------|-----------------------------|------------------------
+centpca	—	управляющая машина  | 10.1.100.10 | (Ansible)
+centpc1	 |10.1.100.12	MASTER  |Keepalived + веб-узел
+centpc3	 |10.1.100.14	BACKUP  |Keepalived + веб-узел
+VIP	 |10.1.100.100	 |плавающий адрес
+
 На всех трёх: CentOS 7.9, SSH-ключи настроены, centpca может ходить по SSH на .12 и .14.
 
-1. Инвентарь /etc/ansible/hosts
-ini
+##### 1. Инвентарь /etc/ansible/hosts
+```ini
 [servers]
 10.1.100.12 ansible_user=root
 10.1.100.14 ansible_user=root
-2. site.yml — главный плейбук
-yaml
+```
+##### 2. site.yml — главный плейбук
+```yaml
 ---
 - name: Комплексная настройка веб-кластера, безопасности и Docker
   hosts: servers
@@ -50,10 +53,11 @@ yaml
     - loadbalancer
     - syslog
 ...
+```
 Порядок ролей критичен: webserver (генерирует шаблон) → deploy_app (монтирует его в контейнер) → loadbalancer (VRRP, порты).
 
-3. Роль webserver — /etc/ansible/roles/webserver/tasks/main.yml
-yaml
+##### 3. Роль webserver — /etc/ansible/roles/webserver/tasks/main.yml
+```yaml
 ---
 - name: Установка веб-сервера nginx
   yum:
@@ -72,8 +76,9 @@ yaml
     state: started
     enabled: yes
 ...
+```
 Шаблон /etc/ansible/roles/webserver/templates/index.html.j2
-html
+```html
 <html>
 <head>
     <title>Ansible Managed Node</title>
@@ -96,8 +101,9 @@ html
     </div>
 </body>
 </html>
-4. Роль backup — /etc/ansible/roles/backup/tasks/main.yml
-yaml
+```
+##### 4. Роль backup — /etc/ansible/roles/backup/tasks/main.yml
+```yaml
 ---
 - name: Создание директории для хранения локальных бэкапов на сервере
   file:
@@ -122,8 +128,9 @@ yaml
     hour: "3"
     job: "/usr/local/bin/backup_web.sh"
 ...
-5. Роль security — /etc/ansible/roles/security/tasks/main.yml
-yaml
+```
+##### 5. Роль security — /etc/ansible/roles/security/tasks/main.yml
+```yaml
 ---
 - name: Отключение авторизации по паролям в SSH (разрешаем только ключи)
   lineinfile:
@@ -149,8 +156,9 @@ yaml
     name: sshd
     state: restarted
 ...
-6. Роль docker — /etc/ansible/roles/docker/tasks/main.yml
-yaml
+```
+##### 6. Роль docker — /etc/ansible/roles/docker/tasks/main.yml
+```yaml
 ---
 - name: Добавление официального репозитория Docker CE
   yum_repository:
@@ -184,10 +192,11 @@ yaml
     dest: /usr/local/bin/docker-compose
     mode: '0755'
 ...
-7. Роль deploy_app — /etc/ansible/roles/deploy_app/tasks/main.yml
+```
+##### 7. Роль deploy_app — /etc/ansible/roles/deploy_app/tasks/main.yml
 Ключевая роль — именно здесь все фиксы про docker-py, volumes и recreate.
 
-yaml
+```yaml
 ---
 - name: Удаление старых конфликтующих конфигов Nginx
   file:
@@ -293,10 +302,11 @@ yaml
   changed_when: false
   failed_when: container_serves_template.rc != 0
 ...
-8. Роль loadbalancer — /etc/ansible/roles/loadbalancer/tasks/main.yml
+```
+##### 8. Роль loadbalancer — /etc/ansible/roles/loadbalancer/tasks/main.yml
 Вторая ключевая роль — VRRP, порт 81, порт 8404, psmisc, socat, stats socket.
 
-yaml
+```yaml
 ---
 - name: Установка пакетов haproxy, keepalived, psmisc (killall) и socat (stats)
   yum:
@@ -473,8 +483,9 @@ yaml
     enabled: yes
   tags: loadbalancer
 ...
-9. Роль syslog — /etc/ansible/roles/syslog/tasks/main.yml
-yaml
+```
+##### 9. Роль syslog — /etc/ansible/roles/syslog/tasks/main.yml
+```yaml
 ---
 - name: Конфигурация Rsyslog как Центрального Сервера (Приемника)
   copy:
@@ -528,8 +539,9 @@ yaml
     name: rsyslog
     state: restarted
 ...
-10. Порядок запуска с нуля
-bash
+```
+##### 10. Порядок запуска с нуля
+```bash
 # 1. Проверить инвентарь
 ansible servers -m ping
 
@@ -538,6 +550,7 @@ ansible-playbook /etc/ansible/site.yml --syntax-check
 
 # 3. Запустить всё
 ansible-playbook /etc/ansible/site.yml
+```
 Что произойдёт по порядку:
 
 webserver — ставит nginx, генерирует /usr/share/nginx/html/index.html из Jinja2-шаблона
@@ -554,8 +567,8 @@ loadbalancer — VRRP в firewalld, порт 81, порт 8404, HAProxy roundrob
 
 syslog — rsyslog сервер на .12, клиент на .14, логи HAProxy в /var/log/haproxy.log
 
-11. Финальные проверки
-bash
+##### 11. Финальные проверки
+```bash
 # 1. Оба backend'а UP
 ansible servers -m shell -a "echo 'show stat' | socat stdio /var/run/haproxy.sock | cut -d, -f1,2,18"
 # Ожидаемо: web_node1,UP / web_node2,UP
@@ -575,3 +588,4 @@ curl -s http://10.1.100.12:8404/stats | grep web_node
 # 5. Firewalld
 ansible servers -m shell -a "firewall-cmd --list-ports; firewall-cmd --list-rich-rules"
 # Ожидаемо: 81/tcp 8404/tcp + rule protocol value="vrrp" accept
+```
