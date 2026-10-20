@@ -794,6 +794,10 @@ curl -s http://10.1.100.12:8404/stats | grep web_node
 # Ожидаемо: оба UP
 ```
 
+<img width="1122" height="141" alt="image" src="https://github.com/user-attachments/assets/22d78987-a5c3-43e2-a17c-1ec1c831da2e" />
+
+--- 
+
 <img width="1143" height="338" alt="image" src="https://github.com/user-attachments/assets/767c2373-3eff-43d8-8c53-d00dbea640fb" />
 
 ```bash
