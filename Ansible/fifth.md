@@ -575,13 +575,17 @@ ansible-playbook /etc/ansible/site.yml
 ansible servers -m shell -a "echo 'show stat' | socat stdio /var/run/haproxy.sock | cut -d, -f1,2,18"
 # Ожидаемо: web_node1,UP / web_node2,UP
 ```
+
 <img width="1115" height="278" alt="image" src="https://github.com/user-attachments/assets/e283a9e7-5348-4f8e-9dd4-e2df041862dc" />
+
 ```bash
 # 2. VIP на MASTER
 ansible servers -m shell -a "ip addr show ens33 | grep 10.1.100.100 || echo NO_VIP"
 # Ожидаемо: на .12 — VIP, на .14 — NO_VIP
 ```
+
 <img width="1091" height="104" alt="image" src="https://github.com/user-attachments/assets/5a54c910-99a6-479d-9099-28d72d132772" />
+
 ```bash
 # 3. Балансировка через VIP
 for i in 1 2 3 4 5 6; do curl -s http://10.1.100.100 | grep -oP 'Имя хоста: <b>\K[^<]+'; done
@@ -599,7 +603,9 @@ centpc3
 curl -s http://10.1.100.12:8404/stats | grep web_node
 # Ожидаемо: оба UP
 ```
+
 <img width="1143" height="338" alt="image" src="https://github.com/user-attachments/assets/767c2373-3eff-43d8-8c53-d00dbea640fb" />
+
 ```bash
 # 5. Firewalld
 ansible servers -m shell -a "firewall-cmd --list-ports; firewall-cmd --list-rich-rules"
@@ -609,7 +615,9 @@ ansible servers -m shell -a "firewall-cmd --permanent --add-port=8404/tcp && fir
 ansible servers -m shell -a "firewall-cmd --permanent --add-port=81/tcp && firewall-cmd --reload"
 ansible servers -m shell -a "firewall-cmd --list-all | grep -E 'ports|services'"
 ```
+
 <img width="1105" height="196" alt="image" src="https://github.com/user-attachments/assets/4edfa6f4-1992-4574-8b1d-fb40975df9cf" />
+
 ```bash
 Удаление, если ошиблись
 ansible servers -m shell -a "firewall-cmd --permanent --remove-port=8484/tcp && firewall-cmd --reload"
