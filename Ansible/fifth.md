@@ -1,4 +1,5 @@
-Делаем систему по схеме
+#### Лабораторная работа на стенде.
+Делаем систему по схеме. С этими конфигами ansible-playbook /etc/ansible/site.yml на чистых CentOS 7 развернёт весь стенд с нуля за один прогон — без ручных действий.
 
 <img width="737" height="328" alt="image" src="https://github.com/user-attachments/assets/7d4c44b8-6e49-4c7b-b11d-7efa05d25742" />
 
@@ -10,3 +11,4 @@
 Веб-сервер (системный)	 |	nginx	 |	81
 Веб-сервер (контейнер)	 |	nginx:1.21 в Docker	 |	8080
 Контент	 |	Шаблон Jinja2 (/usr/share/nginx/html) |		—
+
