@@ -177,7 +177,7 @@ curl -s http://10.1.100.14:9100/metrics | head -3
 <img width="1373" height="553" alt="47" src="https://github.com/user-attachments/assets/4c72d60a-7cc5-4a61-9efa-77726d803599" />
 
 ---
-<hr>
+**
 ---
 
 <img width="1366" height="639" alt="31" src="https://github.com/user-attachments/assets/5bc1ca23-288d-49bb-8e04-fd7fa70ccc33" />
