@@ -154,8 +154,12 @@ ansible servers -m shell -a "firewall-cmd --list-ports"
 curl -s http://10.1.100.12:9100/metrics | head -3
 curl -s http://10.1.100.14:9100/metrics | head -3
 ```
-Итоговая схема
-
-<img width="753" height="415" alt="image" src="https://github.com/user-attachments/assets/ec6c70aa-173b-42e6-94a4-936d60e3c753" />
 
 <img width="1150" height="463" alt="image" src="https://github.com/user-attachments/assets/51f2d11e-eeb6-499d-9f64-a49fbb8d32d5" />
+
+---
+---
+
+#### Итоговая схема
+
+<img width="753" height="415" alt="image" src="https://github.com/user-attachments/assets/ec6c70aa-173b-42e6-94a4-936d60e3c753" />
