@@ -1,16 +1,15 @@
-#### Лабораторная работа по этой архитектуре.
-
-
-
+#### Лабораторная работа
 #### Новая роль monitoring — установка Prometheus Node Exporter на обе ноды
+
 ##### Шаг 1. Создаем структуру директорий роли
 Выполните команду на управляющей машине (centpca):
 
 ```bash
 mkdir -p /etc/ansible/roles/monitoring/{tasks,handlers}
-Шаг 2. Создаем файл обработчиков (Handlers)
 ```
-Создаем файл handlers/main.yml, чтобы Ansible мог перезапускать сервис при изменении конфигурации:
+##### Шаг 2. Создаем файл обработчиков (Handlers)
+
+Создаем файл **handlers/main.yml**, чтобы **Ansible** мог перезапускать сервис при изменении конфигурации:
 
 ```bash
 cat <<'EOF' > /etc/ansible/roles/monitoring/handlers/main.yml
@@ -24,7 +23,7 @@ cat <<'EOF' > /etc/ansible/roles/monitoring/handlers/main.yml
 EOF
 ```
 ##### Шаг 3. Создаем основные задачи (Tasks)
-Создаем файл tasks/main.yml со всеми тегами monitoring (это критически важно для работы команды --tags monitoring):
+Создаем файл **tasks/main.yml** со всеми тегами monitoring (это критически важно для работы команды **--tags monitoring**):
 ```bash
 cat <<'EOF' > /etc/ansible/roles/monitoring/tasks/main.yml
 ---
@@ -107,7 +106,7 @@ cat <<'EOF' > /etc/ansible/roles/monitoring/tasks/main.yml
 EOF
 ```
 ##### Шаг 4. Добавляем роль в главный плейбук site.yml
-Убедитесь, что роль monitoring добавлена в конец списка ролей в файле /etc/ansible/site.yml.
+Убедитесь, что роль monitoring добавлена в конец списка ролей в файле **/etc/ansible/site.yml**.
 
 Ваш site.yml должен выглядеть так:
 ```bash
@@ -129,7 +128,7 @@ cat <<'EOF' > /etc/ansible/site.yml
 EOF
 ```
 ##### Шаг 5. Запуск роли (с нуля или обновление)
-Теперь вы можете установить Node Exporter на обе ноды одной командой:
+Теперь вы можете установить **Node Exporter** на обе ноды одной командой:
 ```bash
 ansible-playbook /etc/ansible/site.yml --tags monitoring
 ```
@@ -185,16 +184,16 @@ http://localhost:9091/metrics	    | UP	instance="localhost:9091", job="prometheu
 
 Все три target'а UP, Error пустой, Scrape Duration ~12–15ms. Prometheus успешно собирает метрики с обеих нод и с себя. Мониторинг работает.
 
-- Prometheus Server запущен и слушает на :9091 — раз /metrics отвечает.
-- Firewalld пропускает 9091 снаружи — раз вы открыли 10.1.100.10:9091 из браузера с другой машины (не с localhost).
-- Self-monitoring работает — Prometheus забирает эти же метрики через job_name: 'prometheus' (target localhost:9091 — UP).
+- **Prometheus Server** запущен и слушает на :9091 — раз **/metrics** отвечает.
+- **Firewalld** пропускает 9091 снаружи — раз вы открыли **10.1.100.10:909** из браузера с другой машины (не с localhost).
+- **Self-monitoring** работает — Prometheus забирает эти же метрики через **job_name: 'prometheus' (target localhost:9091 — UP)**.
 
 ##### Как посмотреть метрики с нод, а не только сервера
-Endpoint /metrics на :9091 — это метрики самого Prometheus. А метрики с нод (centpc1, centpc3) хранятся в TSDB и доступны через:
+**Endpoint /metrics на :9091** — это метрики самого Prometheus. А метрики с нод (centpc1, centpc3) хранятся в TSDB и доступны через:
 
 Веб-интерфейс (самый наглядный способ)
 
-Откройте http://10.1.100.10:9091 (без /metrics) — это UI Prometheus:
+Откройте **http://10.1.100.10:9091 (без /metrics) — это UI Prometheus**:
 ```txt
 Status → Targets — увидите три зелёных target'а (prometheus, node_exporter × 2).
 
@@ -220,7 +219,7 @@ up — статус всех target'ов (1 = UP, 0 = DOWN)
 ##### Как вывести красивые графики для каждой из метрик, которые вы перечислили.
 
 ##### Панель 1. node_cpu_seconds_total — CPU с обеих нод
-Сырое значение — это просто счётчик секунд, накопленных за всё время. Чтобы увидеть реальную нагрузку в процентах, нужно использовать функцию rate.
+Сырое значение — это просто счётчик секунд, накопленных за всё время. Чтобы увидеть реальную нагрузку в процентах, нужно использовать функцию **rate**.
 
 Замените запрос на процент загрузки CPU (чтобы график был понятным):
 
@@ -267,6 +266,8 @@ up
 Нажмите Execute → вкладка Graph (или Table). Значение 1 означает, что узел доступен (UP), 0 — недоступен (DOWN). У вас сейчас должно быть три линии со значением 1 (две ноды и сам Prometheus).
 
 <img width="1035" height="866" alt="image" src="https://github.com/user-attachments/assets/8b0346d9-b520-4b07-a14f-afcfb4c396cb" />
+
+> - Чтобы у вас появились красивые, сохраняемые графики, которые не пропадут, нужно поставить **Grafana**.
 
 #### Через API (для проверки из консоли)
 ```bash
