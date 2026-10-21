@@ -204,3 +204,20 @@ up — статус всех target'ов (1 = UP, 0 = DOWN)
 
 <img width="1379" height="743" alt="34" src="https://github.com/user-attachments/assets/dba47d65-68c0-4c25-a4c2-9745f987d68b" />
 
+#### Через API (для проверки из консоли)
+```bash
+# Метрики CPU с обеих нод
+curl -s 'http://10.1.100.10:9091/api/v1/query?query=node_cpu_seconds_total' | python -m json.tool | grep -E '"instance"' | sort -u
+# Ожидаемо: 10.1.100.12:9100 и 10.1.100.14:9100
+
+# Статус всех target'ов (1 = UP)
+curl -s 'http://10.1.100.10:9091/api/v1/query?query=up' | python -m json.tool | grep -E '"instance"|"value"'
+# Ожидаемо: три записи с "value": [..., "1"]
+
+# Свободная память на нодах
+curl -s 'http://10.1.100.10:9091/api/v1/query?query=node_memory_MemAvailable_bytes' | python -m json.tool | grep -E '"instance"|"value"'
+```
+
+<img width="1239" height="248" alt="image" src="https://github.com/user-attachments/assets/67ac42a1-f1a8-4085-8991-90f2695137cf" />
+
+
