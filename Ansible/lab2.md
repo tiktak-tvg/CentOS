@@ -13,10 +13,6 @@
 Контент	 |	Шаблон Jinja2 (/usr/share/nginx/html) |		—
 
 
----
-
-<img width="1373" height="558" alt="image" src="https://github.com/user-attachments/assets/9b40d5a3-09a8-4597-9480-ca80bcd57fe8" />
-
 #### Предварительные условия
 Хост	  |IP	                          |Роль
 --------|-----------------------------|------------------------
