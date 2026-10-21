@@ -15,7 +15,7 @@ mkdir -p /etc/ansible/roles/monitoring_server/tasks
 ```bash
 cat <<'EOF' > /etc/ansible/roles/monitoring_server/tasks/main.yml
 ---
-# tasks file for monitoring_server (Prometheus + Grafana)
+# tasks file for monitoring_server (Prometheus + Grafana + Auto-Provisioning)
 - name: Установка утилит wget и tar
   yum:
     name:
@@ -23,7 +23,7 @@ cat <<'EOF' > /etc/ansible/roles/monitoring_server/tasks/main.yml
       - tar
     state: present
 
-# --- PROMETHEUS ---
+# --- ЭТАП 1: PROMETHEUS ---
 - name: Создание системного пользователя prometheus
   user:
     name: prometheus
@@ -60,7 +60,7 @@ cat <<'EOF' > /etc/ansible/roles/monitoring_server/tasks/main.yml
   args:
     creates: /usr/local/bin/prometheus
 
-- name: Настройка конфигурации prometheus.yml (порт 9091)
+- name: Настройка конфигурации prometheus.yml (порт 9091 для self-monitoring)
   copy:
     dest: /etc/prometheus/prometheus.yml
     owner: prometheus
@@ -105,7 +105,7 @@ cat <<'EOF' > /etc/ansible/roles/monitoring_server/tasks/main.yml
     state: started
     enabled: yes
 
-# --- GRAFANA ---
+# --- ЭТАП 2: GRAFANA ---
 - name: Скачивание пакета Grafana
   get_url:
     url: https://dl.grafana.com/oss/release/grafana-10.4.2-1.x86_64.rpm
@@ -124,7 +124,12 @@ cat <<'EOF' > /etc/ansible/roles/monitoring_server/tasks/main.yml
     state: started
     enabled: yes
 
-# --- FIREWALLD ---
+- name: Сброс пароля администратора Grafana на стандартный admin (для API)
+  command: grafana-cli --homepath /usr/share/grafana admin reset-admin-password admin
+  changed_when: false
+  ignore_errors: yes
+
+# --- ЭТАП 3: FIREWALLD ---
 - name: Открытие портов 9091 (Prometheus) и 3000 (Grafana)
   firewalld:
     port: "{{ item }}"
@@ -134,6 +139,73 @@ cat <<'EOF' > /etc/ansible/roles/monitoring_server/tasks/main.yml
   loop:
     - 9091/tcp
     - 3000/tcp
+
+# --- ЭТАП 4: АВТОНАСТРОЙКА GRAFANA (Datasource + Dashboard) ---
+- name: Ждем, пока Grafana API полностью поднимется (до 60 секунд)
+  uri:
+    url: "http://localhost:3000/api/health"
+    method: GET
+    status_code: 200
+  register: grafana_health
+  until: grafana_health.status == 200
+  retries: 30
+  delay: 2
+
+- name: Проверяем, существует ли уже Datasource Prometheus (идемпотентность)
+  uri:
+    url: "http://localhost:3000/api/datasources/name/Prometheus"
+    method: GET
+    user: admin
+    password: admin
+    force_basic_auth: yes
+    status_code: [200, 404]
+  register: grafana_ds_check
+
+- name: Создаем Datasource Prometheus в Grafana
+  uri:
+    url: "http://localhost:3000/api/datasources"
+    method: POST
+    user: admin
+    password: admin
+    force_basic_auth: yes
+    body_format: json
+    body:
+      name: Prometheus
+      type: prometheus
+      url: "http://localhost:9091"
+      access: proxy
+      isDefault: true
+    status_code: [200, 409]
+  when: grafana_ds_check.status == 404
+
+- name: Скачиваем официальный JSON дашборда Node Exporter (ID 11074)
+  uri:
+    url: "https://grafana.com/api/dashboards/11074/revisions/latest/download"
+    method: GET
+    return_content: yes
+  register: dashboard_json
+
+- name: Парсим JSON в переменную
+  set_fact:
+    dashboard_payload: "{{ dashboard_json.content | from_json }}"
+
+- name: Импортируем дашборд в Grafana (с привязкой к Datasource)
+  uri:
+    url: "http://localhost:3000/api/dashboards/db"
+    method: POST
+    user: admin
+    password: admin
+    force_basic_auth: yes
+    body_format: json
+    body:
+      dashboard: "{{ dashboard_payload }}"
+      overwrite: true
+      inputs:
+        - name: "DS_PROMETHEUS"
+          type: "datasource"
+          pluginId: "prometheus"
+          value: "Prometheus"
+    status_code: 200
 ...
 EOF
 ```
@@ -158,7 +230,22 @@ ansible-playbook /etc/ansible/site.yml
 # 2. Ставим сервер мониторинга на управляющую машину
 ansible-playbook /etc/ansible/monitoring_server.yml
 ```
-(Единственное, что останется сделать вручную — один раз зайти в Grafana, добавить Datasource Prometheus (URL: http://localhost:9091) и импортировать дашборд ID 11074. Данные Grafana хранит в своей базе SQLite, поэтому после импорта они не пропадут).
+(Единственное, что останется сделать вручную — один раз зайти в Grafana, добавить Datasource Prometheus (URL: http://10.1.100.10:9091) и импортировать дашборд ID 11074. Данные Grafana хранит в своей базе SQLite, поэтому после импорта они не пропадут).
+
+Откройте браузер и зайдите на: http://10.1.100.10:3000
+
+Введите логин: admin и пароль: admin
+(Если Grafana попросит сменить пароль при первом входе — можете пропустить этот шаг или сменить, это не повлияет на работу).
+
+В левом меню нажмите на иконку Dashboards (четыре квадратика).
+
+Выберите Browse (Обзор).
+
+Откройте папку General или Node Exporter.
+
+Нажмите на дашборд Node Exporter Dashboard EN 20201010-StarsL.cn (тот самый ID 11074).
+
+Вы сразу увидите полностью готовый дашборд. В меню сверху будет выпадающий список Host или Instance — выберите All, чтобы видеть графики (CPU, RAM, Диск, Сеть) сразу с обеих ваших нод (10.1.100.12 и 10.1.100.14).
 
 ### ЧАСТЬ 2. ИТОГОВЫЙ ОТЧЁТ ПО СТЕНДУ
 #### 2.1. Архитектура решения
