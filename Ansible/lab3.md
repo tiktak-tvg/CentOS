@@ -158,13 +158,6 @@ curl -s http://10.1.100.14:9100/metrics | head -3
 <img width="1150" height="463" alt="image" src="https://github.com/user-attachments/assets/51f2d11e-eeb6-499d-9f64-a49fbb8d32d5" />
 
 ---
----
-
-#### Итоговая схема
-
-<img width="753" height="415" alt="image" src="https://github.com/user-attachments/assets/ec6c70aa-173b-42e6-94a4-936d60e3c753" />
-
----
 
 <img width="909" height="879" alt="image" src="https://github.com/user-attachments/assets/b90c02b2-74c8-4094-a951-d9b4a86cae96" />
 
@@ -240,4 +233,10 @@ curl -s 'http://10.1.100.10:9091/api/v1/query?query=node_memory_MemAvailable_byt
 
 <img width="1239" height="248" alt="image" src="https://github.com/user-attachments/assets/67ac42a1-f1a8-4085-8991-90f2695137cf" />
 
+---***---
 
+#### Итоговая схема
+
+<img width="753" height="415" alt="image" src="https://github.com/user-attachments/assets/ec6c70aa-173b-42e6-94a4-936d60e3c753" />
+
+---
