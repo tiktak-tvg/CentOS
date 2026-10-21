@@ -240,6 +240,8 @@ ansible-playbook /etc/ansible/monitoring_server.yml
 ##### Шаг 3: Настройка Grafana (один раз)
 Открыть http://10.1.100.10:3000 (admin/admin).
 
+<img width="1055" height="976" alt="image" src="https://github.com/user-attachments/assets/bc3d7d76-3553-48ba-b38d-93a31581a8d9" />
+
 Добавить Data Source: Prometheus, URL: http://localhost:9091.
 
 Импортировать дашборд по ID: 11074 (Node Exporter Dashboard EN).
