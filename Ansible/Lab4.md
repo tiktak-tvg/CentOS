@@ -17,6 +17,8 @@ firewall-cmd --reload
 ```
 После этого зайдите в браузере по адресу http://10.1.100.10:3000 (логин и пароль: admin, admin).
 ```txt
+Это будет для одной ноды, в качестве примера покажу, но будем использовать другой вариант
+
 В меню слева выберите Connections -> Data sources -> Add data source -> Prometheus.
 
 В поле Connection URL укажите: http://10.1.100.10:9091
@@ -29,45 +31,29 @@ firewall-cmd --reload
 
 Выберите ваш Prometheus и нажмите Import.
 ```
+##### Шаг 1: Импортируем простой дашборд
+Делаем сразу для всех нод
+```txt
+Это будет для всех нод
+
+В меню слева выберите Connections -> Data sources -> Add data source -> Prometheus.
+
+В поле Connection URL укажите: http://10.1.100.10:9091
+
+Нажмите Save & test (должно появиться "Data source is working").
+
+В меню слева выберите Dashboards -> Import.
+
+В поле Import via grafana.com введите 11074 (это официальный Node Exporter for Prometheus Dashboard EN) и нажмите Load.
+
+Выберите ваш Prometheus и нажмите Import.
+```
+
 У вас появится огромный красивый дашборд с графиками CPU, памяти, дисков и сети для обеих нод. 
 
 Он будет сохраняться в базе Grafana, и вы сможете открывать его с любого компьютера.
 
-<img width="1058" height="803" alt="image" src="https://github.com/user-attachments/assets/4bad9c56-0e30-4d60-928e-460caad7d15e" />
-
-Дашборд Node Exporter Full импортировался, но он пуст («No data», «N/A»), потому что Grafana пока не знает, откуда брать данные.
-
-Обратите внимание на выпадающий список Datasource в самом верху слева — там написано No data sources found (или он пустой). Grafana нужно вручную связать с вашим Prometheus.
-
 <img width="1369" height="900" alt="36" src="https://github.com/user-attachments/assets/506a9e07-2f94-40d7-b82f-744f6180422a" />
-
-##### Шаг 1: Импортируем простой дашборд
-В левом меню нажмите Dashboards.
-
-Нажмите синюю кнопку New (в правом верхнем углу) и выберите Import.
-
-В поле Import via grafana.com введите ID: 11074 (это официальный Node Exporter for Prometheus Dashboard EN). Нажмите Load.
-
-В поле Prometheus выберите ваш источник данных (он должен подсветиться синим).
-
-Нажмите Import.
-
-##### Шаг 1: Добавляем Prometheus как источник данных (если еще не добавили)
-В левом верхнем углу нажмите на иконку меню (три полоски) или на логотип Grafana.
-
-Выберите Connections (или Configuration в старых версиях) -> Data sources.
-
-Нажмите синюю кнопку Add data source (Добавить источник данных).
-
-<img width="1336" height="451" alt="image" src="https://github.com/user-attachments/assets/a2b64d07-3aab-4c46-b8fb-f1db99d3600a" />
-
-Выберите Prometheus (первая иконка в списке).
-
-В поле Prometheus server URL (или Connection URL) введите: http://10.1.100.10:9091
-
-Прокрутите страницу в самый низ и нажмите кнопку Save & test (Сохранить и проверить).
-
-Должна появиться зелёная галочка с надписью «Data source is working» (Источник данных работает).
 
 ##### Шаг 2: Где искать ноды (фильтры)
 Как только данные появятся, вы увидите графики. В самом верху дашборда у вас есть выпадающие списки-фильтры:
@@ -102,6 +88,8 @@ Instance — нажмите на него. Вот здесь будут ваши
 Сразу же появятся графики с двумя линиями (для centpc1 и centpc3).
 
 Нажмите иконку дискеты (Save) вверху, чтобы сохранить.
+
+<img width="1060" height="865" alt="image" src="https://github.com/user-attachments/assets/21b53858-83b2-4d81-b1c8-26bd6296330f" />
 
 ##### Шаг 4: Убираем красные треугольники
 Красные треугольники в углах панелей означают ошибку запроса. Это происходит именно из-за того, что переменная $datasource в дашборде сейчас пустая. Как только вы выберете Prometheus в верхнем списке (Шаг 2), треугольники исчезнут, а цифры и графики появятся.
