@@ -1,6 +1,9 @@
 ### Автоматизация Prometheus и Grafana (плейбук monitoring_server.yml)
+Чтобы стенд разворачивался полностью с нуля одной командой, нам нужно автоматизировать установку Prometheus и Grafana.
 
-<img width="747" height="903" alt="image" src="https://github.com/user-attachments/assets/973dd3ba-067c-4501-aa1b-196971fb1083" />
+Поскольку Prometheus и Grafana ставятся на управляющую машину (centpca), мы создадим отдельный плейбук monitoring_server.yml, который будет запускаться локально (hosts: localhost).
+
+Вот полная инструкция, как это сделать:
 
 Так как Prometheus и Grafana ставятся на управляющую машину (centpca), мы создадим отдельный плейбук, который будет запускаться локально (``hosts: localhost``).
 
@@ -304,4 +307,5 @@ ansible servers -m shell -a "ls -lh /var/backups/web/"
 
 Безопасность: SSH только по ключам, root запрещен.
 
+<img width="747" height="903" alt="image" src="https://github.com/user-attachments/assets/973dd3ba-067c-4501-aa1b-196971fb1083" />
 Инфраструктура как код (IaC): всё разворачивается одной командой ansible-playbook site.yml + monitoring_server.yml.
