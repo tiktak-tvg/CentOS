@@ -233,7 +233,9 @@ curl -s 'http://10.1.100.10:9091/api/v1/query?query=node_memory_MemAvailable_byt
 
 <img width="1239" height="248" alt="image" src="https://github.com/user-attachments/assets/67ac42a1-f1a8-4085-8991-90f2695137cf" />
 
----***---
+---
+******************************************************************
+---
 
 #### Итоговая схема
 
