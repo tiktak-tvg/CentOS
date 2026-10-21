@@ -166,7 +166,11 @@ curl -s http://10.1.100.14:9100/metrics | head -3
 
 <img width="909" height="879" alt="image" src="https://github.com/user-attachments/assets/b90c02b2-74c8-4094-a951-d9b4a86cae96" />
 
-<img width="1199" height="569" alt="45" src="https://github.com/user-attachments/assets/0bd219d6-9a09-41e9-badd-a0bf5d591e77" />
+<img width="1199" height="569" alt="45" src="https://github.com/user-attachments/assets/1f95a2e4-6fed-4ee1-9289-81d4827c406e" />
+
+<img width="1373" height="553" alt="47" src="https://github.com/user-attachments/assets/4c72d60a-7cc5-4a61-9efa-77726d803599" />
+
+<img width="1366" height="639" alt="31" src="https://github.com/user-attachments/assets/5bc1ca23-288d-49bb-8e04-fd7fa70ccc33" />
 
 - Prometheus Server запущен и слушает на :9091 — раз /metrics отвечает.
 - Firewalld пропускает 9091 снаружи — раз вы открыли 10.1.100.10:9091 из браузера с другой машины (не с localhost).
