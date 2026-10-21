@@ -625,7 +625,7 @@ ansible servers -m shell -a "curl -s http://127.0.0.1:8080 | grep 'Имя хос
 ```
 Сводка: что делает каждая роль
 Роль	| Что делает	| Ключевые фиксы
-------|----------_--|-----------------
+------|-------------|-----------------
 webserver | Ставит nginx, генерирует index.html из Jinja2 | 	Шаблон в /usr/share/nginx/html
 backup	 | /var/backups/web, скрипт, cron 03:30	 | —
 security	 | SSH: только ключи, root не логинится	 | —
