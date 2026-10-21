@@ -202,3 +202,5 @@ up — статус всех target'ов (1 = UP, 0 = DOWN)
 Нажмите Execute, затем вкладку Graph — увидите графики. Под графиком будет список instance: 10.1.100.12:9100 и 10.1.100.14:9100 — метрики с обеих нод.
 ```
 
+<img width="1379" height="743" alt="34" src="https://github.com/user-attachments/assets/dba47d65-68c0-4c25-a4c2-9745f987d68b" />
+
