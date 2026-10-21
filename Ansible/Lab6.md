@@ -292,23 +292,35 @@ ansible servers -m shell -a "/usr/local/bin/backup_web.sh && echo OK"
 # 3. Проверить, что архив создался
 ansible servers -m shell -a "ls -lh /var/backups/web/"
 ```
+
+<img width="1207" height="625" alt="image" src="https://github.com/user-attachments/assets/3425ffe6-80d7-43aa-b74e-59d3f3dbd26d" />
+
 #### 2.5. Итоговый результат
-В результате выполнения работы был развернут отказоустойчивый веб-кластер с полным набором инфраструктурных сервисов:
 
-Высокая доступность: Keepalived с VIP 10.1.100.100 (переезд при отказе за ~5 секунд).
+#### Итог всей проделанной работы
+Вы создали стенд уровня Production, который управляется кодом. Теперь развертывание всей этой сложной архитектуры с нуля занимает ровно две команды:
 
-Балансировка нагрузки: HAProxy (roundrobin) с healthcheck'ами, оба backend'а в статусе UP.
+``bash
+# 1. Разворачиваем ноды (Nginx, Docker, HAProxy, Keepalived, rsyslog, Node Exporter)
+ansible-playbook /etc/ansible/site.yml
 
-Контейнеризация: Docker + Nginx, шаблон Jinja2 монтируется в контейнер через volume.
+# 2. Разворачиваем сервер мониторинга (Prometheus + Grafana + Datasource + Дашборд)
+ansible-playbook /etc/ansible/monitoring_server.yml
+```
+Что у вас теперь есть:
 
-Мониторинг: Prometheus + Grafana + Node Exporter (сбор метрик CPU/RAM/Disk/Network с обеих нод).
+✅ Отказоустойчивость: VIP на Keepalived, переезд за 5 секунд.
 
-Централизованное логирование: rsyslog (клиент .14 → сервер .12, запись в /var/log/remote/).
+✅ Балансировка: HAProxy с roundrobin и healthcheck.
 
-Резервное копирование: ежедневный cron-скрипт (03:30) в /var/backups/web/.
+✅ Контейнеризация: Docker + Nginx, монтирование шаблона Jinja2.
 
-Безопасность: SSH только по ключам, root запрещен.
+✅ Логирование: rsyslog собирает логи на центральный сервер.
 
-Инфраструктура как код (IaC): всё разворачивается одной командой ansible-playbook site.yml + monitoring_server.yml.
+✅ Мониторинг: Node Exporter + Prometheus + автоматически настроенная Grafana.
+
+✅ Безопасность: SSH только по ключам.
+
+✅ Бэкапы: Cron-задача на ежедневное архивирование.
 
 <img width="747" height="903" alt="image" src="https://github.com/user-attachments/assets/973dd3ba-067c-4501-aa1b-196971fb1083" />
