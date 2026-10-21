@@ -1,6 +1,6 @@
 #### Лабораторная работа по этой архитектуре.
 
-<img width="747" height="903" alt="image" src="https://github.com/user-attachments/assets/973dd3ba-067c-4501-aa1b-196971fb1083" />
+
 
 #### Новая роль monitoring — установка Prometheus Node Exporter на обе ноды
 ##### Шаг 1. Создаем структуру директорий роли
