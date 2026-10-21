@@ -166,16 +166,17 @@ ansible servers -m shell -a "grep 'backup_web' /var/log/cron | tail -5"
 ##### 3.3. Краткий список остальных глобальных фиксов (для контекста)
 Keepalived: Открыли протокол vrrp в firewalld (устранили split-brain, когда VIP висел на двух нодах одновременно).
 
-HAProxy: Открыли порт 81/tcp и установили socat (без этого healthcheck на web_node2 не проходил, и балансировка не работала). Добавили stats socket и порт 8404 для веб-статистики.
+**HAProxy:** Открыли порт 81/tcp и установили socat (без этого healthcheck на web_node2 не проходил, и балансировка не работала). Добавили stats socket и порт 8404 для веб-статистики.
 
-Docker (deploy_app):
+**Docker (deploy_app):** Зафиксировали версии requests<2.28 и urllib3<1.27 (чтобы не падало на Python 2.7).
 
-Удалили конфликтующий старый docker-py.
+**Добавили volumes для монтирования шаблона Jinja2 внутрь контейнера и recreate:** yes.
 
-Зафиксировали версии requests<2.28 и urllib3<1.27 (чтобы не падало на Python 2.7).
+**Мониторинг:** Добавили теги monitoring в задачи, чтобы работал запуск **--tags monitoring**. Настроили Prometheus на порт 9091, чтобы избежать конфликта с Cockpit (порт 9090).
 
-Добавили volumes для монтирования шаблона Jinja2 внутрь контейнера и recreate: yes.
+Теперь система полностью автоматизирована. 
 
-Мониторинг: Добавили теги monitoring в задачи, чтобы работал запуск --tags monitoring. Настроили Prometheus на порт 9091, чтобы избежать конфликта с Cockpit (порт 9090).
+При следующем запуске ansible-playbook /etc/ansible/site.yml все эти конфиги применятся с нуля без ручного вмешательства.
 
-Теперь система полностью автоматизирована. При следующем запуске ansible-playbook /etc/ansible/site.yml все эти конфиги применятся с нуля без ручного вмешательства.
+<img width="757" height="461" alt="image" src="https://github.com/user-attachments/assets/80595eb9-933a-43ea-9b0a-221057147314" />
+
