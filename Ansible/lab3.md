@@ -1,3 +1,157 @@
 #### Лабораторная работа по этой архитектуре.
 
 <img width="747" height="903" alt="image" src="https://github.com/user-attachments/assets/973dd3ba-067c-4501-aa1b-196971fb1083" />
+
+#### Новая роль monitoring — установка Prometheus Node Exporter на обе ноды
+##### Шаг 1. Создаем структуру директорий роли
+Выполните команду на управляющей машине (centpca):
+
+```bash
+mkdir -p /etc/ansible/roles/monitoring/{tasks,handlers}
+Шаг 2. Создаем файл обработчиков (Handlers)
+```
+Создаем файл handlers/main.yml, чтобы Ansible мог перезапускать сервис при изменении конфигурации:
+
+```bash
+cat <<'EOF' > /etc/ansible/roles/monitoring/handlers/main.yml
+---
+- name: restart node_exporter
+  systemd:
+    name: node_exporter
+    state: restarted
+    daemon_reload: yes
+...
+EOF
+```
+##### Шаг 3. Создаем основные задачи (Tasks)
+Создаем файл tasks/main.yml со всеми тегами monitoring (это критически важно для работы команды --tags monitoring):
+```bash
+cat <<'EOF' > /etc/ansible/roles/monitoring/tasks/main.yml
+---
+# tasks file for monitoring (Prometheus Node Exporter)
+- name: Создание системного пользователя node_exporter (без логина)
+  user:
+    name: node_exporter
+    shell: /sbin/nologin
+    create_home: no
+    system: yes
+  tags: monitoring
+
+- name: Скачивание и распаковка Node Exporter (v1.8.2)
+  unarchive:
+    src: "https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-amd64.tar.gz"
+    dest: /tmp
+    remote_src: yes
+    creates: /tmp/node_exporter-1.8.2.linux-amd64/node_exporter
+  tags: monitoring
+
+- name: Копирование бинарника в /usr/local/bin
+  copy:
+    src: /tmp/node_exporter-1.8.2.linux-amd64/node_exporter
+    dest: /usr/local/bin/node_exporter
+    mode: '0755'
+    owner: node_exporter
+    group: node_exporter
+    remote_src: yes
+  tags: monitoring
+
+- name: Создание systemd-юнита node_exporter
+  copy:
+    dest: /etc/systemd/system/node_exporter.service
+    content: |
+      [Unit]
+      Description=Prometheus Node Exporter
+      Documentation=https://github.com/prometheus/node_exporter
+      After=network.target
+
+      [Service]
+      User=node_exporter
+      Group=node_exporter
+      Type=simple
+      ExecStart=/usr/local/bin/node_exporter
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: '0644'
+  notify: restart node_exporter
+  tags: monitoring
+
+- name: Запуск и включение автозагрузки node_exporter
+  systemd:
+    name: node_exporter
+    daemon_reload: yes
+    state: started
+    enabled: yes
+  tags: monitoring
+
+- name: Открыть порт 9100/tcp в firewalld (метрики Node Exporter)
+  firewalld:
+    port: 9100/tcp
+    permanent: yes
+    state: enabled
+    immediate: yes
+  when: ansible_os_family == "RedHat"
+  tags: [monitoring, firewalld]
+
+- name: Проверка, что Node Exporter отвечает на /metrics
+  shell: curl -s http://127.0.0.1:9100/metrics | head -1
+  args:
+    warn: false
+  register: node_exporter_check
+  changed_when: false
+  failed_when: node_exporter_check.rc != 0
+  tags: monitoring
+...
+EOF
+```
+##### Шаг 4. Добавляем роль в главный плейбук site.yml
+Убедитесь, что роль monitoring добавлена в конец списка ролей в файле /etc/ansible/site.yml.
+
+Ваш site.yml должен выглядеть так:
+```bash
+cat <<'EOF' > /etc/ansible/site.yml
+---
+- name: Комплексная настройка веб-кластера, безопасности и Docker
+  hosts: servers
+  become: yes
+  roles:
+    - webserver
+    - backup
+    - security
+    - docker
+    - deploy_app
+    - loadbalancer
+    - syslog
+    - monitoring
+...
+EOF
+```
+##### Шаг 5. Запуск роли (с нуля или обновление)
+Теперь вы можете установить Node Exporter на обе ноды одной командой:
+```bash
+ansible-playbook /etc/ansible/site.yml --tags monitoring
+```
+Ожидаемый результат: Ansible выполнит все задачи (создаст пользователя, скачает и распакует архив, скопирует бинарник, создаст сервис, запустит его и откроет порт). В PLAY RECAP должно быть failed=0.
+
+##### Шаг 6. Проверка работоспособности
+После завершения плейбука проверьте, что агент работает на обеих нодах:
+```bash
+# 1. Проверяем, что служба активна
+ansible servers -m shell -a "systemctl is-active node_exporter"
+# Ожидаемо: "active" на обоих хостах
+
+# 2. Проверяем, что метрики отдаются локально
+ansible servers -m shell -a "curl -s http://127.0.0.1:9100/metrics | head -3"
+# Ожидаемо: строки "# HELP go_gc_duration_seconds..."
+
+# 3. Проверяем, что порт открыт в firewalld
+ansible servers -m shell -a "firewall-cmd --list-ports"
+# Ожидаемо: наличие "9100/tcp" в списке
+
+# 4. Проверяем доступность метрик снаружи (с centpca)
+curl -s http://10.1.100.12:9100/metrics | head -3
+curl -s http://10.1.100.14:9100/metrics | head -3
+```
+<img width="1150" height="463" alt="image" src="https://github.com/user-attachments/assets/51f2d11e-eeb6-499d-9f64-a49fbb8d32d5" />
