@@ -163,3 +163,38 @@ curl -s http://10.1.100.14:9100/metrics | head -3
 #### Итоговая схема
 
 <img width="753" height="415" alt="image" src="https://github.com/user-attachments/assets/ec6c70aa-173b-42e6-94a4-936d60e3c753" />
+
+<img width="909" height="879" alt="image" src="https://github.com/user-attachments/assets/b90c02b2-74c8-4094-a951-d9b4a86cae96" />
+
+<img width="1199" height="569" alt="45" src="https://github.com/user-attachments/assets/0bd219d6-9a09-41e9-badd-a0bf5d591e77" />
+
+- Prometheus Server запущен и слушает на :9091 — раз /metrics отвечает.
+- Firewalld пропускает 9091 снаружи — раз вы открыли 10.1.100.10:9091 из браузера с другой машины (не с localhost).
+- Self-monitoring работает — Prometheus забирает эти же метрики через job_name: 'prometheus' (target localhost:9091 — UP).
+
+##### Как посмотреть метрики с нод, а не только сервера
+Endpoint /metrics на :9091 — это метрики самого Prometheus. А метрики с нод (centpc1, centpc3) хранятся в TSDB и доступны через:
+
+Веб-интерфейс (самый наглядный способ)
+
+Откройте http://10.1.100.10:9091 (без /metrics) — это UI Prometheus:
+```txt
+Status → Targets — увидите три зелёных target'а (prometheus, node_exporter × 2).
+
+Graph — введите запрос, например:
+
+node_cpu_seconds_total — CPU с обеих нод
+
+node_memory_MemAvailable_bytes — свободная память
+
+node_filesystem_avail_bytes — свободное место на дисках
+
+node_load1 — load average
+
+node_network_receive_bytes_total — сеть
+
+up — статус всех target'ов (1 = UP, 0 = DOWN)
+
+Нажмите Execute, затем вкладку Graph — увидите графики. Под графиком будет список instance: 10.1.100.12:9100 и 10.1.100.14:9100 — метрики с обеих нод.
+```
+
