@@ -208,18 +208,20 @@ ansible-playbook /etc/ansible/monitoring_server.yml
       └── Централизованный rsyslog (принимает логи от .14)
 ```
 #### 2.2. Таблица компонентов
-Слой	Технология	Порт	Где развернуто
-Отказоустойчивость	Keepalived (VRRP)	112	.12 (MASTER), .14 (BACKUP)
-Балансировка	HAProxy	80	.12, .14
-Статистика HAProxy	HAProxy Stats	8404	.12, .14
-Веб-сервер (системный)	Nginx	81	.12, .14
-Веб-сервер (контейнер)	Nginx 1.21 (Docker)	8080	.12, .14
-Мониторинг	Node Exporter	9100	.12, .14
-Сбор метрик	Prometheus Server	9091	centpca
-Визуализация	Grafana	3000	centpca
-Централизованные логи	rsyslog	514	.12 (сервер), .14 (клиент)
-Бэкапы	Bash + Cron	—	.12, .14
-Управление	Ansible	—	centpca
+Слой	|Технология	|Порт	  |Где развернуто
+----- | --------- | ----- | -----------------------
+Отказоустойчивость	 |Keepalived (VRRP)	|112 | .12 (MASTER), .14 (BACKUP)
+Балансировка	 |HAProxy	 |80	| .12, .14
+Статистика |HAProxy	HAProxy Stats	 |8404	| .12, .14
+Веб-сервер (системный)	 |Nginx	 |81	| .12, .14
+Веб-сервер (контейнер)	 |Nginx 1.21 (Docker)	 |8080	| .12, .14
+Мониторинг	 |Node Exporter	 |9100	| .12, .14
+Сбор метрик	 |Prometheus Server	 |9091	|centpca
+Визуализация	 |Grafana	 |3000	 |centpca
+Централизованные логи	 |rsyslog	 |514	| .12 (сервер), .14 (клиент)
+Бэкапы	 |Bash + Cron	 | —	 |.12, .14
+Управление	 |Ansible  |	—	  |centpca
+
 #### 2.3. Как развернуть стенд с нуля (пошагово)
 ##### Шаг 1: Предварительные условия
 Настроены SSH-ключи с centpca на .12 и .14.
@@ -307,5 +309,6 @@ ansible servers -m shell -a "ls -lh /var/backups/web/"
 
 Безопасность: SSH только по ключам, root запрещен.
 
-<img width="747" height="903" alt="image" src="https://github.com/user-attachments/assets/973dd3ba-067c-4501-aa1b-196971fb1083" />
 Инфраструктура как код (IaC): всё разворачивается одной командой ansible-playbook site.yml + monitoring_server.yml.
+
+<img width="747" height="903" alt="image" src="https://github.com/user-attachments/assets/973dd3ba-067c-4501-aa1b-196971fb1083" />
