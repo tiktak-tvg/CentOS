@@ -16,6 +16,14 @@ ssh-copy-id root@10.1.100.15
 ```bash
 ssh root@10.1.100.15 'hostname'
 ```
+Проверка правил firewalld (правильный синтаксис)
+```bash
+ansible gitlab -m shell -a "firewall-cmd --list-all"
+```
+Что ищем: в секции services должны быть http и https (или в ports — 80/tcp и 443/tcp). Если их нет — откройте порты:
+```bash
+ansible gitlab -m shell -a "firewall-cmd --permanent --add-service=http --add-service=https && firewall-cmd --reload"
+```
 #### ЭТАП 1. Инвентарь
 Создайте файл инвентаря:
 ```bash
