@@ -24,6 +24,9 @@ ansible gitlab -m shell -a "firewall-cmd --list-all"
 ```bash
 ansible gitlab -m shell -a "firewall-cmd --permanent --add-service=http --add-service=https && firewall-cmd --reload"
 ```
+
+<img width="1091" height="294" alt="image" src="https://github.com/user-attachments/assets/e80f725f-009f-4d2a-8f0c-569b200f7f3e" />
+
 #### ЭТАП 1. Инвентарь
 Создайте файл инвентаря:
 ```bash
@@ -33,6 +36,8 @@ cat <<'EOF' > /etc/ansible/hosts
 EOF
 ```
 Проверьте связь: ansible gitlab -m ping.
+
+<img width="1091" height="127" alt="image" src="https://github.com/user-attachments/assets/e6d9d188-3639-4c00-94bd-bc7183743c24" />
 
 #### ЭТАП 2. Роль security (с тегами)
 ```bash
