@@ -433,3 +433,20 @@ Host violates local access rules	 | trusted_domains через occ
 Cookie secure блокирует вход по HTTP	 | overwriteprotocol=http + cookie_secure=false
 Сокет root:root недоступен Nginx	 | listen.owner = nginx в www.conf
 Порт 8080 занят GitLab Puma	 | Nginx на 8081
+
+```txt
+┌──────────────────────────────────────────────────────────────┐
+│  10.1.100.15 (centpc15)                                      │
+│                                                              │
+│  :80   ─┐                                                    │
+│         ├─→ GitLab Omnibus Nginx ─→ Puma/Workhorse ─→ GitLab │
+│  :443  ─┘   (SSL, самоподписанный)                           │
+│                                                              │
+│  :8081 ───→ Системный Nginx ─→ PHP-FPM 8.3 ─→ Nextcloud      │
+│                                              │               │
+│                                              ├─→ MariaDB 10.6│
+│                                              │   (localhost) │
+│                                              └─→ Redis       │
+│                                                  (localhost) │
+└──────────────────────────────────────────────────────────────┘
+```
