@@ -39,6 +39,10 @@ EOF
 
 <img width="1091" height="127" alt="image" src="https://github.com/user-attachments/assets/e6d9d188-3639-4c00-94bd-bc7183743c24" />
 
+#### Удалить системный nginx (если он был)
+```bash
+ansible gitlab -m shell -a "systemctl stop nginx 2>/dev/null; systemctl disable nginx 2>/dev/null; yum remove -y nginx"
+```
 #### ЭТАП 2. Роль security (с тегами)
 ```bash
 mkdir -p /etc/ansible/roles/security/{tasks,handlers}
@@ -282,6 +286,8 @@ ansible gitlab -m shell -a "cat /etc/gitlab/initial_root_password"
 
 Логин: root, Пароль: из вывода команды.
 
+<img width="1226" height="521" alt="image" src="https://github.com/user-attachments/assets/e038a313-4f77-4a9c-bf02-81211fc53efa" />
+
 #### ЭТАП 6. (Опционально) Настройка SSH-доступа для Git
 Чтобы делать git clone без пароля, добавьте SSH-ключ вашей управляющей машины в GitLab:
 
@@ -289,10 +295,60 @@ ansible gitlab -m shell -a "cat /etc/gitlab/initial_root_password"
 
 В GitLab: Аватар → Preferences → SSH Keys → Add new key.
 
+<img width="1097" height="340" alt="image" src="https://github.com/user-attachments/assets/d7d1233d-f1c9-4e28-b872-b193eb148672" />
+
+<img width="1337" height="1001" alt="image" src="https://github.com/user-attachments/assets/8fd6ede9-44be-4487-b2b9-356d6be48051" />
+
 Вставьте ключ и сохраните.
 
-Теперь клонирование будет работать мгновенно:
+#### Создайте первый проект:
+
+Нажмите кнопку Create a project (или + в верхней панели) -> Create blank project. Дайте ему имя (например, test-project), выберите уровень 
+видимости (Private) и нажмите Create project.
+
+<img width="1168" height="717" alt="image" src="https://github.com/user-attachments/assets/05f0cae8-20af-41c0-a3c1-3e41d099166f" />
+
+Теперь клонирование:
 
 ```bash
 git clone git@10.1.100.15:root/test-project.git
+
+# git clone git@10.1.100.15:root/test-project.git
+Cloning into 'test-project'...
+remote: Enumerating objects: 3, done.
+remote: Counting objects: 100% (3/3), done.
+remote: Compressing objects: 100% (2/2), done.
+remote: Total 3 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)
+Receiving objects: 100% (3/3), done.
+# ls
+anaconda-ks.cfg  MYDATES  test-project  
 ```
+#### Выполните команды по порядку:
+##### 1. Создайте файл правильно
+```bash
+cd test-project/
+echo 'Hello from my Ansible-managed GitLab!' > test.txt
+(Обратите внимание на одинарные кавычки '...').
+```
+##### 2. Убедитесь, что файл создан
+```bash
+ls -l test.txt
+Должна появиться строка с test.txt.
+# ls
+anaconda-ks.cfg  MYDATES  test-project  test.txt
+```
+##### 3. Добавьте файл в Git и сделайте коммит
+```bash
+git add test.txt
+git commit -m "Add first test file via CLI"
+Теперь Git должен показать, что создан новый файл: 1 file changed, 1 insertion(+).
+```
+##### 4. Отправьте изменения на сервер
+``bash
+git push origin main
+Должно появиться сообщение вроде To 10.1.100.15:root/test-project.git ... main -> main.
+```
+##### 5. Проверьте в браузере
+Обновите страницу https://10.1.100.15/root/test-project — вы должны увидеть файл test.txt в списке.
+
+<img width="1213" height="313" alt="image" src="https://github.com/user-attachments/assets/bcddfcb8-c367-49db-ac68-56bd536c13f5" />
