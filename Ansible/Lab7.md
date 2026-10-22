@@ -1,67 +1,91 @@
-[root@localhost ~]# ssh-copy-id root@10.1.100.15
+### Пошаговое развертывание GitLab CE с нуля (Ansible)
+#### Подготовка управляющей машины (10.1.100.9)
+Установите Ansible, необходимые коллекции и настройте SSH-доступ.
+```bash
+# 1. Установка Ansible
+yum install -y ansible git
 
-/usr/bin/ssh-copy-id: ERROR: failed to open ID file '/root/.pub': Нет такого файла или каталога
-        (to install the contents of '/root/.pub' anyway, look at the -f option)
-[root@localhost ~]# mkdir -p ~/.ssh && chmod 700 ~/.ssh
-[root@localhost ~]# ssh-keygen -t rsa -b 4048
-Generating public/private rsa key pair.
-Enter file in which to save the key (/root/.ssh/id_rsa):
-Enter passphrase (empty for no passphrase):
-Enter same passphrase again:
-Your identification has been saved in /root/.ssh/id_rsa.
-Your public key has been saved in /root/.ssh/id_rsa.pub.
-The key fingerprint is:
-SHA256:91nc6sSUHpa+6kfOkYKHxgLB4npQQHR42kbwIqJhou0 root@localhost.localdomain
-The key's randomart image is:
-+---[RSA 4048]----+
-| o=+..           |
-|  .o= o          |
-|=..B.. .         |
-|*+o.+ .      . + |
-|o .+   .S..o  O..|
-| .. .   ..=.oO+o |
-|  E.     o .o=*. |
-|             o+. |
-|           .ooo  |
-+----[SHA256]-----+
-[root@localhost ~]# ssh-copy-id root@10.1.100.15
-/usr/bin/ssh-copy-id: INFO: Source of key(s) to be installed: "/root/.ssh/id_rsa.pub"
-/usr/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
-/usr/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
-root@10.1.100.15's password:
+# 2. Установка коллекции для работы с SELinux
+ansible-galaxy collection install ansible.posix
 
-Number of key(s) added: 1
+# 3. Копирование SSH-ключа на целевую машину
+ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/id_rsa  # если ключа еще нет
+ssh-copy-id root@10.1.100.15
+```
+Проверяем доступ:
+```bash
+ssh root@10.1.100.15 'hostname'
+```
+#### ЭТАП 1. Инвентарь
+Создайте файл инвентаря:
 
-Now try logging into the machine, with:   "ssh 'root@10.1.100.15'"
-and check to make sure that only the key(s) you wanted were added.
+bash
+cat <<'EOF' > /etc/ansible/hosts
+[gitlab]
+10.1.100.15 ansible_user=root
+EOF
+Проверьте связь: ansible gitlab -m ping.
 
-[root@localhost ~]# ansible servers -m ping
-[WARNING]: Could not match supplied host pattern, ignoring: servers
-[WARNING]: No hosts matched, nothing to do
-[root@localhost ~]# ansible gitlab -m ping
-10.1.100.15 | SUCCESS => {
-    "ansible_facts": {
-        "discovered_interpreter_python": "/usr/bin/python"
-    },
-    "changed": false,
-    "ping": "pong"
-}
-[root@localhost ~]#
-[root@localhost ~]# mkdir -p /etc/ansible/roles/gitlab/{tasks,templates,handlers}
-[root@localhost ~]#
+#### ЭТАП 2. Роль security (с тегами)
+```bash
+mkdir -p /etc/ansible/roles/security/{tasks,handlers}
+roles/security/tasks/main.yml
+```
+```bash
+cat <<'EOF' > /etc/ansible/roles/security/tasks/main.yml
+---
+- name: Отключение авторизации по паролям в SSH (разрешаем только ключи)
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+  notify: Перезапуск SSH
+  tags: security
+
+- name: Отключение прямого удаленного входа для root
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin without-password'
+  notify: Перезапуск SSH
+  tags: security
+...
+EOF
+```
+roles/security/handlers/main.yml
+```bash
+cat <<'EOF' > /etc/ansible/roles/security/handlers/main.yml
+---
+- name: Перезапуск SSH
+  service:
+    name: sshd
+    state: restarted
+  tags: security
+...
+EOF
+```
+#### ЭТАП 3. Роль gitlab (с учетом всех фиксов)
+```bash
+mkdir -p /etc/ansible/roles/gitlab/{tasks,templates,handlers}
+```
+##### 3.1. Задачи (tasks/main.yml)
+Включаем генерацию SSL с SAN (через CSR), правильные зависимости и отключение проблемных параметров.
+```bash
 cat <<'EOF' > /etc/ansible/roles/gitlab/tasks/main.yml
 ---
-- name: Установка зависимостей для GitLab
+- name: Установка зависимостей для GitLab и SELinux
   yum:
     name:
       - curl
       - policycoreutils
+      - policycoreutils-python
       - openssh-server
       - postfix
       - openssl
+      - libselinux-python
     state: present
 
-- name: Включение и запуск Postfix (для отправки почты)
+- name: Включение и запуск Postfix
   systemd:
     name: postfix
     state: started
@@ -78,7 +102,7 @@ cat <<'EOF' > /etc/ansible/roles/gitlab/tasks/main.yml
   args:
     creates: /etc/yum.repos.d/gitlab_gitlab-ce.repo
 
-- name: Установка GitLab CE (Omnibus) - может занять несколько минут
+- name: Установка GitLab CE (Omnibus)
   yum:
     name: gitlab-ce
     state: present
@@ -93,14 +117,25 @@ cat <<'EOF' > /etc/ansible/roles/gitlab/tasks/main.yml
   openssl_privatekey:
     path: "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.key"
     size: 2048
+    owner: root
+    group: gitlab-www
+    mode: '0640'
 
-- name: Генерация самоподписанного SSL-сертификата
+- name: Генерация CSR (с указанием SAN - IP адреса)
+  openssl_csr:
+    path: "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.csr"
+    privatekey_path: "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.key"
+    common_name: "{{ ansible_default_ipv4.address }}"
+    subject_alt_name:
+      - "IP:{{ ansible_default_ipv4.address }}"
+
+- name: Генерация самоподписанного SSL-сертификата (с SAN)
   openssl_certificate:
     path: "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.crt"
+    csr_path: "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.csr"
     privatekey_path: "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.key"
     provider: selfsigned
-    subject:
-      commonName: "{{ ansible_default_ipv4.address }}"
+    selfsigned_not_after: "+365d"
 
 - name: Настройка конфигурации GitLab (gitlab.rb)
   template:
@@ -111,11 +146,10 @@ cat <<'EOF' > /etc/ansible/roles/gitlab/tasks/main.yml
     mode: '0600'
   notify: reconfigure gitlab
 
-- name: Запуск и включение автозагрузки GitLab
-  systemd:
-    name: gitlab-runsvdir
-    state: started
-    enabled: yes
+- name: Запуск всех сервисов GitLab
+  command: gitlab-ctl start
+  args:
+    creates: /var/opt/gitlab/.gitlab_started_marker
 
 - name: Открытие портов 80 и 443 в firewalld
   firewalld:
@@ -127,30 +161,94 @@ cat <<'EOF' > /etc/ansible/roles/gitlab/tasks/main.yml
     - http
     - https
   when: ansible_os_family == "RedHat"
-  ignore_errors: yes
 ...
 EOF
-
+```
+##### 3.2. Шаблон конфигурации (templates/gitlab.rb.j2)
+Критически важные фиксы: нет grafana, принудительный IPv4, только TLSv1.2.
+```bash
 cat <<'EOF' > /etc/ansible/roles/gitlab/templates/gitlab.rb.j2
 # Внешний URL
 external_url 'https://{{ ansible_default_ipv4.address }}'
 
-# Отключаем Let's Encrypt, используем самоподписанные сертификаты
+# Настройка HTTPS (самоподписанные сертификаты)
 letsencrypt['enable'] = false
 nginx['ssl_certificate'] = "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.crt"
 nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.key"
 nginx['redirect_http_to_https'] = true
 
-# Отключаем ресурсоемкие компоненты мониторинга (для экономии ОЗУ)
+# Принудительный IPv4 и только TLS 1.2 (для совместимости с OpenSSL 1.0.2 на CentOS 7)
+nginx['listen_addresses'] = ['0.0.0.0']
+nginx['ssl_protocols'] = "TLSv1.2"
+
+# Отключаем ресурсоемкие компоненты мониторинга (экономия ОЗУ)
 prometheus_monitoring['enable'] = false
 prometheus['enable'] = false
 alertmanager['enable'] = false
-grafana['enable'] = false
 node_exporter['enable'] = false
 redis_exporter['enable'] = false
 postgres_exporter['enable'] = false
 gitlab_exporter['enable'] = false
 
-# Уменьшаем количество рабочих процессов для экономии памяти
+# Уменьшаем количество рабочих процессов
 puma['worker_processes'] = 2
 EOF
+```
+##### 3.3. Обработчик (handlers/main.yml)
+```bash
+cat <<'EOF' > /etc/ansible/roles/gitlab/handlers/main.yml
+---
+- name: reconfigure gitlab
+  command: gitlab-ctl reconfigure
+  listen: reconfigure gitlab
+...
+EOF
+```
+#### ЭТАП 4. Главный плейбук
+```bash
+cat <<'EOF' > /etc/ansible/gitlab.yml
+---
+- name: Развертывание GitLab CE и настройка безопасности
+  hosts: gitlab
+  become: yes
+  roles:
+    - gitlab
+    - security
+...
+EOF
+```
+#### ЭТАП 5. Запуск и финальная настройка
+Запустите плейбук:
+```bash
+ansible-playbook /etc/ansible/gitlab.yml
+```
+(Установка займет 5–15 минут. Ansible будет "молчать" на этапах скачивания пакета и выполнения reconfigure).
+
+После завершения (failed=0) выполните команду для гарантии прав на SSL-ключ (чтобы nginx мог его прочитать):
+```bash
+ansible gitlab -m shell -a "chown root:gitlab-www /etc/gitlab/ssl/10.1.100.15.key && chmod 640 /etc/gitlab/ssl/10.1.100.15.key && gitlab-ctl restart nginx"
+```
+Вход в систему
+
+Узнайте пароль администратора:
+```bash
+ansible gitlab -m shell -a "cat /etc/gitlab/initial_root_password"
+```
+Откройте браузер: https://10.1.100.15 (примите предупреждение о сертификате).
+
+Логин: root, Пароль: из вывода команды.
+
+#### ЭТАП 6. (Опционально) Настройка SSH-доступа для Git
+Чтобы делать git clone без пароля, добавьте SSH-ключ вашей управляющей машины в GitLab:
+
+Скопируйте публичный ключ: cat ~/.ssh/id_rsa.pub.
+
+В GitLab: Аватар → Preferences → SSH Keys → Add new key.
+
+Вставьте ключ и сохраните.
+
+Теперь клонирование будет работать мгновенно:
+
+```bash
+git clone git@10.1.100.15:root/test-project.git
+```
