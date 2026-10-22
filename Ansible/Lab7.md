@@ -42,8 +42,9 @@ EOF
 #### ЭТАП 2. Роль security (с тегами)
 ```bash
 mkdir -p /etc/ansible/roles/security/{tasks,handlers}
-roles/security/tasks/main.yml
 ```
+
+Создаём файл **/etc/ansible/roles/security/tasks/main.yml**
 ```bash
 cat <<'EOF' > /etc/ansible/roles/security/tasks/main.yml
 ---
