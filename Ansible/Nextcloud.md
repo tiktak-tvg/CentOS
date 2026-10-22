@@ -434,6 +434,21 @@ Cookie secure блокирует вход по HTTP	 | overwriteprotocol=http + 
 Сокет root:root недоступен Nginx	 | listen.owner = nginx в www.conf
 Порт 8080 занят GitLab Puma	 | Nginx на 8081
 
+Полный обзор машины 10.1.100.15 (centpc15)
+
+На этой машине работают два независимых сервиса, которые мы развернули: GitLab CE и Nextcloud. Они не конфликтуют, потому что используют разные веб-серверы, разные БД и разные порты.
+
+##### Что работает на 10.1.100.15
+Сервис	| Порт	| Веб-сервер	| БД	| Статус
+---------- | ------------ | ------ | -------- | ---------
+GitLab CE		| 443 (HTTPS)	| Omnibus Nginx (/opt/gitlab/embedded/sbin/nginx)	PostgreSQL (встроенная)		| Работает
+GitLab CE		| 80 (HTTP)		| Omnibus Nginx (редирект на 443)		| —		| Работает
+Nextcloud		| 8081 (HTTP)		| Системный Nginx (/usr/sbin/nginx)		| MariaDB 10.6		| Работает
+MariaDB		| 3306 (только localhost)	| 	—		| БД nextcloud		| Работает
+Redis		| 6379 (только localhost)		| —		| Кэш для Nextcloud		| Работает
+PHP-FPM 8.3	Unix-сокет /var/run/php-fpm/php83-fpm.sock	| —	| — | Работает
+
+##### Порты и адреса
 ```txt
 ┌──────────────────────────────────────────────────────────────┐
 │  10.1.100.15 (centpc15)                                      │
@@ -450,3 +465,156 @@ Cookie secure блокирует вход по HTTP	 | overwriteprotocol=http + 
 │                                                  (localhost) │
 └──────────────────────────────────────────────────────────────┘
 ```
+##### Доступ извне:
+
+- GitLab: https://10.1.100.15 (с самоподписанным сертификатом)
+- Nextcloud: http://10.1.100.15:8081 (HTTP, без шифрования — для тестов)
+
+##### Файловая структура
+**GitLab (Omnibus)**
+Путь		| Назначение
+---------- | ------------
+/etc/gitlab/gitlab.rb		| Главный конфиг GitLab
+/etc/gitlab/ssl/		| SSL-сертификаты (10.1.100.15.crt, .key)
+/var/opt/gitlab/		| Данные GitLab (репозитории, БД, логи)
+/var/log/gitlab/		| Логи всех компонентов GitLab
+/opt/gitlab/		| Бинарники GitLab Omnibus
+/etc/gitlab/initial_root_password		| Пароль root (удаляется через 24 часа)
+
+**Nextcloud**
+Путь		| Назначение
+---------- | ------------
+/var/www/nextcloud/		| Файлы Nextcloud (ядро, приложения, конфиги)
+/var/www/nextcloud/config/config.php		| Главный конфиг Nextcloud
+/var/www/nextcloud/data/		| Данные пользователей (файлы, логи)
+/etc/nginx/conf.d/nextcloud.conf		| Конфиг Nginx для Nextcloud
+/etc/opt/remi/php83/php-fpm.d/www.conf		| Конфиг PHP-FPM
+/etc/opt/remi/php83/php.ini		| Конфиг PHP (memory_limit 512M)
+/var/log/nginx/		| Логи системного Nginx
+/var/opt/remi/php83/lib/php/session/		| PHP-сессии
+
+**MariaDB (для Nextcloud)**
+Путь		| Назначение
+---------- | ------------
+/var/lib/mysql/		| Данные всех БД
+/etc/my.cnf.d/		| Настройки MariaDB
+/var/log/mariadb/		| Логи MariaDB
+
+##### Пользователи и группы (системные)
+Пользователь		| Группа		| Для чего
+---------- | ------------ | ----------
+git		| git		| GitLab: доступ к репозиториям
+gitlab-www		| gitlab-www		| GitLab: Nginx worker
+gitlab-psql		| gitlab-psql		| GitLab: PostgreSQL
+gitlab-redis	| gitlab-redis		| GitLab: Redis
+nginx	nginx		| Системный Nginx (Nextcloud)
+mysql		      | mysql		| MariaDB
+redis		      | redis		| Redis (системный)
+apache		    | apache		| PHP-FPM pool (по умолчанию)
+
+##### Базы данных
+БД		| Владелец		| Где		| Для чего
+---------- | ------------ | ------- | --------
+gitlabhq_production		| gitlab		| PostgreSQL (встроенная в GitLab)		| GitLab
+nextcloud		| nextcloud		| MariaDB 10.6		| Nextcloud
+
+> Важно: GitLab использует PostgreSQL, а Nextcloud — MariaDB. Они не пересекаются.
+
+##### Учётные записи (для входа)
+**GitLab**
+- URL: https://10.1.100.15
+- Логин: root
+- Пароль: был в /etc/gitlab/initial_root_password (или тот, что вы сменили после первого входа)
+
+**Nextcloud**
+- URL: http://10.1.100.15:8081
+- Логин: nextcloud_admin
+- Пароль: MySuperCloud2026!
+- БД (для конфига): пользователь nextcloud, пароль StrongNextcloudPassword123!
+
+##### Управление сервисами
+**GitLab**
+```bash
+gitlab-ctl status              # Статус всех компонентов
+gitlab-ctl restart             # Перезапуск
+gitlab-ctl reconfigure         # Применить изменения из gitlab.rb
+gitlab-ctl stop                # Остановить
+gitlab-ctl tail nginx          # Логи nginx в реальном времени
+```
+Компоненты GitLab (все через runit): gitaly, gitlab-kas, gitlab-workhorse, logrotate, nginx, postgresql, puma, redis, sidekiq.
+
+**Nextcloud**
+```bash
+systemctl status nginx             # Системный Nginx
+systemctl status php83-php-fpm     # PHP-FPM 8.3
+systemctl status mariadb           # MariaDB 10.6
+systemctl status redis             # Redis
+
+systemctl restart nginx            # Перезапуск Nginx
+systemctl restart php83-php-fpm    # Перезапуск PHP-FPM
+```
+##### Логи
+**GitLab**
+
+Лог		| Путь
+---------- | ------------
+Nginx (GitLab)		| /var/log/gitlab/nginx/error.log
+Puma		| /var/log/gitlab/puma/
+Sidekiq		| /var/log/gitlab/sidekiq/
+Gitaly		| /var/log/gitlab/gitaly/
+PostgreSQL		| /var/log/gitlab/postgresql/
+
+**Nextcloud**
+Лог		| Путь
+---------- | ------------
+Nginx (системный)		| /var/log/nginx/error.log
+Nextcloud		| /var/www/nextcloud/data/nextcloud.log
+PHP-FPM		| /var/opt/remi/php83/var/log/php-fpm/
+MariaDB	| /var/log/mariadb/mariadb.log
+
+##### Firewalld (открытые порты)
+```bash
+firewall-cmd --list-all
+Порт/Сервис	Для чего
+ssh (22)	SSH-доступ
+http (80)	GitLab (редирект на HTTPS)
+https (443)	GitLab (HTTPS)
+8081/tcp	Nextcloud (HTTP)
+```
+##### Быстрая проверка «всё ли живо»
+```bash
+# 1. Порты
+ss -tlnp | grep -E ':(80|443|8081|3306|6379)'
+
+# 2. GitLab
+curl -k -I https://10.1.100.15 | head -3
+# Ожидаемо: HTTP/1.1 302 Found → /users/sign_in
+
+# 3. Nextcloud
+curl -I http://10.1.100.15:8081 | head -3
+# Ожидаемо: HTTP/1.1 200 OK (или 302)
+
+# 4. MariaDB
+mysql -e "SELECT user,host FROM mysql.user WHERE user='nextcloud';"
+
+# 5. GitLab статус
+gitlab-ctl status
+
+# 6. Nextcloud БД через occ
+sudo -u nginx /opt/remi/php83/root/usr/bin/php /var/www/nextcloud/occ status
+```
+##### Возможные конфликты (и почему их нет)
+Что могло бы конфликтовать	Почему не конфликтует
+- Порт 80/443 — GitLab и Nginx Nextcloud	Nextcloud на 8081, GitLab на 80/443
+- Nginx — два экземпляра	GitLab использует /opt/gitlab/embedded/sbin/nginx, Nextcloud — /usr/sbin/nginx
+- PHP-FPM — два пула	Только один пул (PHP 8.3), обслуживает Nextcloud
+- База данных — две БД	GitLab → PostgreSQL (встроенный), Nextcloud → MariaDB 10.6
+- Пользователи — nginx vs gitlab-www	Разные пользователи, разные файлы, разные группы
+##### Резюме по 10.1.100.15
+Что	Где	Как зайти
+- GitLab (Git-сервер)	https://10.1.100.15	Логин root, пароль из /etc/gitlab/initial_root_password
+- Nextcloud (Файловое облако)	http://10.1.100.15:8081	Логин nextcloud_admin, пароль MySuperCloud2026!
+- БД Nextcloud	MariaDB, nextcloud	пользователь nextcloud / StrongNextcloudPassword123!
+- База GitLab	PostgreSQL (встроенная)	Управляется автоматически через gitlab-ctl
+- Оба сервиса полностью независимы и работают параллельно. Машина 10.1.100.15 успешно выполняет роль двух «серверов» в одном — Git-сервера и файлового облака.
+
