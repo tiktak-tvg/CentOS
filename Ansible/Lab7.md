@@ -18,12 +18,12 @@ ssh root@10.1.100.15 'hostname'
 ```
 #### ЭТАП 1. Инвентарь
 Создайте файл инвентаря:
-
-bash
+```bash
 cat <<'EOF' > /etc/ansible/hosts
 [gitlab]
 10.1.100.15 ansible_user=root
 EOF
+```
 Проверьте связь: ansible gitlab -m ping.
 
 #### ЭТАП 2. Роль security (с тегами)
