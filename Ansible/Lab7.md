@@ -66,7 +66,10 @@ cat <<'EOF' > /etc/ansible/roles/security/tasks/main.yml
 ...
 EOF
 ```
-roles/security/handlers/main.yml
+
+<img width="1120" height="301" alt="image" src="https://github.com/user-attachments/assets/fcfa725c-85eb-4a1c-a281-2c0e34ec8d1c" />
+
+Создаём файл **/etc/ansible/roles/security/handlers/main.yml**
 ```bash
 cat <<'EOF' > /etc/ansible/roles/security/handlers/main.yml
 ---
@@ -78,6 +81,9 @@ cat <<'EOF' > /etc/ansible/roles/security/handlers/main.yml
 ...
 EOF
 ```
+
+<img width="1132" height="122" alt="image" src="https://github.com/user-attachments/assets/09d39b0d-5959-4bd6-bc1f-4ee8f90e3c2d" />
+
 #### ЭТАП 3. Роль gitlab (с учетом всех фиксов)
 ```bash
 mkdir -p /etc/ansible/roles/gitlab/{tasks,templates,handlers}
@@ -87,6 +93,21 @@ mkdir -p /etc/ansible/roles/gitlab/{tasks,templates,handlers}
 ```bash
 cat <<'EOF' > /etc/ansible/roles/gitlab/tasks/main.yml
 ---
+# --- КРИТИЧЕСКИЙ ФИКС №1: Остановка системного Nginx (освобождение портов 80/443) ---
+- name: Проверка, установлен ли системный Nginx
+  stat:
+    path: /usr/sbin/nginx
+  register: system_nginx
+
+- name: Остановка и отключение системного Nginx (если он есть)
+  systemd:
+    name: nginx
+    state: stopped
+    enabled: no
+  when: system_nginx.stat.exists
+  ignore_errors: yes
+
+# --- Установка и настройка ---
 - name: Установка зависимостей для GitLab и SELinux
   yum:
     name:
@@ -127,13 +148,11 @@ cat <<'EOF' > /etc/ansible/roles/gitlab/tasks/main.yml
     state: directory
     mode: '0755'
 
-- name: Генерация самоподписанного SSL-ключа
+# --- КРИТИЧЕСКИЙ ФИКС №2: Генерируем ключ от root:root (группы gitlab-www еще нет) ---
+- name: Генерация самоподписанного SSL-ключа (от root)
   openssl_privatekey:
     path: "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.key"
     size: 2048
-    owner: root
-    group: gitlab-www
-    mode: '0640'
 
 - name: Генерация CSR (с указанием SAN - IP адреса)
   openssl_csr:
@@ -160,10 +179,28 @@ cat <<'EOF' > /etc/ansible/roles/gitlab/tasks/main.yml
     mode: '0600'
   notify: reconfigure gitlab
 
-- name: Запуск всех сервисов GitLab
-  command: gitlab-ctl start
-  args:
-    creates: /var/opt/gitlab/.gitlab_started_marker
+# --- КРИТИЧЕСКИЙ ФИКС №3: Запускаем reconfigure СЕЙЧАС, чтобы создалась группа gitlab-www ---
+- name: Применение конфигурации GitLab (создание группы gitlab-www)
+  meta: flush_handlers
+
+# --- Выставляем правильные права (теперь группа gitlab-www существует) ---
+- name: Установка правильных прав на приватный ключ SSL
+  file:
+    path: "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.key"
+    owner: root
+    group: gitlab-www
+    mode: '0640'
+
+- name: Установка правильных прав на сертификат SSL
+  file:
+    path: "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.crt"
+    owner: root
+    group: gitlab-www
+    mode: '0644'
+
+- name: Перезапуск Nginx для применения прав на сертификаты
+  command: gitlab-ctl restart nginx
+  changed_when: true
 
 - name: Открытие портов 80 и 443 в firewalld
   firewalld:
@@ -191,7 +228,7 @@ nginx['ssl_certificate'] = "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.c
 nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/{{ ansible_default_ipv4.address }}.key"
 nginx['redirect_http_to_https'] = true
 
-# Принудительный IPv4 и только TLS 1.2 (для совместимости с OpenSSL 1.0.2 на CentOS 7)
+# КРИТИЧЕСКИЙ ФИКС: Принудительный IPv4 и только TLSv1.2 (для CentOS 7)
 nginx['listen_addresses'] = ['0.0.0.0']
 nginx['ssl_protocols'] = "TLSv1.2"
 
@@ -204,7 +241,7 @@ redis_exporter['enable'] = false
 postgres_exporter['enable'] = false
 gitlab_exporter['enable'] = false
 
-# Уменьшаем количество рабочих процессов
+# Уменьшаем количество рабочих процессов (для серверов с 4ГБ ОЗУ)
 puma['worker_processes'] = 2
 EOF
 ```
@@ -236,14 +273,7 @@ EOF
 ```bash
 ansible-playbook /etc/ansible/gitlab.yml
 ```
-(Установка займет 5–15 минут. Ansible будет "молчать" на этапах скачивания пакета и выполнения reconfigure).
-
-После завершения (failed=0) выполните команду для гарантии прав на SSL-ключ (чтобы nginx мог его прочитать):
-```bash
-ansible gitlab -m shell -a "chown root:gitlab-www /etc/gitlab/ssl/10.1.100.15.key && chmod 640 /etc/gitlab/ssl/10.1.100.15.key && gitlab-ctl restart nginx"
-```
-Вход в систему
-
+#### Вход в систему
 Узнайте пароль администратора:
 ```bash
 ansible gitlab -m shell -a "cat /etc/gitlab/initial_root_password"
