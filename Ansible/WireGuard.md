@@ -61,7 +61,8 @@ ansible vpn -m ping
 ```
 Если ping не проходит — дальше идти нельзя. Разбирайтесь с SSH/ключами/сетью.
 
-<img width="1123" height="235" alt="image" src="https://github.com/user-attachments/assets/55628f90-5442-497a-8f2e-8a50e8a2238d" />
+<img width="1123" height="235" alt="image" src="https://github.com/user-attachments/assets/08d381ae-8326-499f-a684-a51fda33616b" />
+
 
 #### Какие порты открыть в firewalld
 Для работы WireGuard на сервере (10.1.100.21) нужно открыть один UDP-порт и включить маскарадинг (NAT), чтобы клиенты могли выходить в интернет через VPN.
