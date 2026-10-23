@@ -522,12 +522,6 @@ Ansible сгенерирует ключи для client3, добавит его 
     │ 10.8.0.2          │  │ 10.8.0.3         │
     └───────────────────┘  └─────────────────┘
 ```
-🛡️ Ключевые фиксы в этой версии (для понимания)
-Ошибка	Причина	Фикс
-No package matching 'kmod-wireguard'	ELRepo не содержит модуль для ядра 1160.119.1	wireguard-dkms из COPR jdoss/wireguard
-could not locate file in lookup: server_private.key	lookup('file') работает на управляющей машине	slurp — модуль читает файл на целевой машине
-no test named 'equalto'	Jinja2 2.7 на CentOS 7 не знает selectattr('...', 'equalto', ...)	{% for %} + {% if result.item.name == client.name %}
-RTNETLINK answers: Operation not supported	На клиенте не установлен модуль ядра	Установить wireguard-dkms и на клиенте тоже
 
 
 
