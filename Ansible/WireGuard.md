@@ -86,7 +86,8 @@ ansible vpn -m shell -a "firewall-cmd --list-all"
 ```
 > Примечание: Если вы используете WireGuard Easy (веб-интерфейс), также может понадобиться TCP-порт 51821 для доступа к панели управления, но для чистого WireGuard он не нужен.
 
-<img width="3440" height="1440" alt="image" src="https://github.com/user-attachments/assets/adc213a4-e370-4cfd-9ebc-6c2d7ab548e8" />
+<img width="1127" height="406" alt="image" src="https://github.com/user-attachments/assets/1d9e6c5a-d2be-4b00-b2a8-87bd99e95f1e" />
+
 
 #### ЭТАП 1. Структура роли
 ```bash
@@ -362,6 +363,8 @@ Ansible выведет публичный ключ сервера и его IP:�
 
 Ожидаемый результат: PLAY RECAP с failed=0.
 
+<img width="1111" height="305" alt="image" src="https://github.com/user-attachments/assets/b4b4244e-876a-4d92-8440-0d1f5b748666" />
+
 #### ЭТАП 9. Проверка на сервере
 ```bash
 # 1. Интерфейс поднят
@@ -386,6 +389,9 @@ ansible vpn -m shell -a "cat /etc/wireguard/wg0.conf"
 # 7. Клиентский конфиг
 ansible vpn -m shell -a "cat /etc/wireguard/clients/client1.conf"
 ```
+
+<img width="1165" height="1073" alt="image" src="https://github.com/user-attachments/assets/4765e9e1-0fcd-432a-80c9-7e6014accdc6" />
+
 #### ТАП 10. Настройка клиента (centManager)
 ##### 10.1. Установка модуля ядра WireGuard на клиенте
 Ключевой фикс: без модуля ядра wg-quick up выдаст Operation not supported.
@@ -405,6 +411,9 @@ yum install -y wireguard-dkms wireguard-tools
 modprobe wireguard
 lsmod | grep wireguard
 ```
+
+<img width="1138" height="376" alt="image" src="https://github.com/user-attachments/assets/d85d3d34-a335-421e-87cd-ac18a7716795" />
+
 ##### 10.2. Копирование клиентского конфига
 ```bash
 mkdir -p /etc/wireguard
@@ -432,6 +441,9 @@ ip route get 8.8.8.8
 # 4. Счётчики transfer растут
 wg show
 ```
+
+<img width="1090" height="755" alt="image" src="https://github.com/user-attachments/assets/e6741bcd-f2e4-43dc-9004-d80c5b9bff42" />
+
 ##### 10.5. Автозагрузка клиента
 ```bash
 systemctl enable wg-quick@client1
@@ -448,18 +460,44 @@ systemctl enable wg-quick@client1
 Клиент: пинг		|ping 10.8.0.1		|0% packet loss
 Клиент: маршрут		|ip route get 8.8.8.8		|dev client1
 
+```txt
+
+┌──────────────────────────────────────────────────────────────┐
+│  Локальная сеть 10.1.100.0/24                                │
+│                                                              │
+│  ┌─────────────┐       ┌──────────────┐                      │
+│  │ centManager │──────→│ 10.1.100.21  │                      │
+│  │ (клиент)    │  VPN  │ (VPN-сервер) │                      │
+│  └─────────────┘       └──────┬───────┘                      │
+│                               │                              │
+│                               │ masquerade                   │
+│                               ▼                              │
+│                    ┌───────────────────┐                     │
+│                    │  Общий NAT-шлюз   │                     │
+│                    │  (195.178.4.0/22) │                     │
+│                    └─────────┬─────────┘                     │
+└──────────────────────────────┼───────────────────────────────┘
+                               │
+                               ▼
+                        ┌──────────────┐
+                        │  Интернет    │
+                        └──────────────┘
+```
 ##### Добавление нового клиента
 В defaults/main.yml добавьте запись:
 
-yaml
+```yaml
 - name: client3
   ip: "10.8.0.4"
-Запустите плейбук:
+```
 
-bash
+<img width="1128" height="245" alt="image" src="https://github.com/user-attachments/assets/16f50659-cfbf-43a6-aa1d-a2062f79e077" />
+
+Запустите плейбук:
+```bash
 ansible-playbook /etc/ansible/wireguard.yml
 Ansible сгенерирует ключи для client3, добавит его в wg0.conf и создаст /etc/wireguard/clients/client3.conf.
-
+```
 Сервис перезапустится автоматически (через handler).
 
 ##### Итоговая архитектура
@@ -491,30 +529,6 @@ could not locate file in lookup: server_private.key	lookup('file') работа�
 no test named 'equalto'	Jinja2 2.7 на CentOS 7 не знает selectattr('...', 'equalto', ...)	{% for %} + {% if result.item.name == client.name %}
 RTNETLINK answers: Operation not supported	На клиенте не установлен модуль ядра	Установить wireguard-dkms и на клиенте тоже
 
-
-```txt
-
-┌──────────────────────────────────────────────────────────────┐
-│  Локальная сеть 10.1.100.0/24                                │
-│                                                              │
-│  ┌─────────────┐       ┌──────────────┐                      │
-│  │ centManager │──────→│ 10.1.100.21  │                      │
-│  │ (клиент)    │  VPN  │ (VPN-сервер) │                      │
-│  └─────────────┘       └──────┬───────┘                      │
-│                               │                              │
-│                               │ masquerade                   │
-│                               ▼                              │
-│                    ┌───────────────────┐                     │
-│                    │  Общий NAT-шлюз   │                     │
-│                    │  (195.178.4.0/22) │                     │
-│                    └─────────┬─────────┘                     │
-└──────────────────────────────┼───────────────────────────────┘
-                               │
-                               ▼
-                        ┌──────────────┐
-                        │  Интернет    │
-                        └──────────────┘
-```
 
 
 
