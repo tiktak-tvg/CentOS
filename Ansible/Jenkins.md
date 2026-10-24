@@ -509,6 +509,8 @@ ansible jenkins -m shell -a "curl -s -o /dev/null -w '%{http_code}' http://10.1.
 
 <img width="1135" height="974" alt="image" src="https://github.com/user-attachments/assets/0078270d-590c-4d77-a0a6-1a09c736f4d5" />
 
+<img width="1278" height="1113" alt="image" src="https://github.com/user-attachments/assets/b34f5380-4049-46a9-b575-6b0c0f13e69b" />
+
 - Раздел Source Code Management → Git:
 - Repository URL: https://10.1.100.15/root/test-project.git (ваш GitLab).
 - Credentials: добавьте логин/пароль/ от GitLab через Add → Jenkins.
@@ -525,13 +527,16 @@ ansible jenkins -m shell -a "curl -s -o /dev/null -w '%{http_code}' http://10.1.
 
     - Как его получить: зайдите в GitLab (под root) → Preferences → Access Tokens → создайте токен с правами read_repository (и api, если планируете больше интеграций) → скопируйте его.
  
-      
+  <img width="1254" height="1192" alt="image" src="https://github.com/user-attachments/assets/2359c6dc-8647-48b3-80c6-ce0054f2e737" />
+    
     - ID: можно оставить пустым, Jenkins сгенерирует сам, или задать понятное имя, например gitlab-root-token.
     - Description: например, Доступ к GitLab для сборки.
     - Нажмите Create.
 
-<img width="1278" height="1113" alt="image" src="https://github.com/user-attachments/assets/b34f5380-4049-46a9-b575-6b0c0f13e69b" />
- 
+<img width="1294" height="951" alt="image" src="https://github.com/user-attachments/assets/e178015a-4b03-48b4-908e-d8fde37e5f1c" />
+
+<img width="1126" height="480" alt="image" src="https://github.com/user-attachments/assets/238415b8-f973-4caf-aecd-86bfd92f2c03" />
+
 
 Раздел Build Triggers → отметьте GitHub hook trigger for GITScm polling (если используете вебхуки).
 
