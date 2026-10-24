@@ -226,6 +226,196 @@ cat <<'EOF' > /etc/ansible/roles/jenkins/tasks/main.yml
 ...
 EOF
 ```
+
+> [!WARNING]
+> Если вы уже авторизовались и переустанавливаете, то конфиг будет такой (замените блок с 7 по 10 (после firewalld) на следующий)
+
+```bash
+cat <<'EOF' > /etc/ansible/roles/jenkins/tasks/main.yml
+---
+# ============================================================
+# 1. Установка Temurin JDK 21
+# ============================================================
+- name: Добавление репозитория Adoptium (Temurin)
+  copy:
+    dest: /etc/yum.repos.d/adoptium.repo
+    content: |
+      [Adoptium]
+      name=Adoptium
+      baseurl=https://packages.adoptium.net/artifactory/rpm/centos/7/$basearch
+      enabled=1
+      gpgcheck=1
+      gpgkey=https://packages.adoptium.net/artifactory/api/gpg/key/public
+    mode: '0644'
+
+- name: Импорт GPG-ключа Adoptium
+  rpm_key:
+    key: https://packages.adoptium.net/artifactory/api/gpg/key/public
+    state: present
+
+- name: Установка Temurin JDK 21 и fontconfig
+  yum:
+    name:
+      - fontconfig
+      - temurin-21-jdk
+    state: present
+
+# ============================================================
+# 2. Репозиторий и установка Jenkins
+# ============================================================
+- name: Добавление Jenkins репозитория
+  get_url:
+    url: https://pkg.jenkins.io/redhat-stable/jenkins.repo
+    dest: /etc/yum.repos.d/jenkins.repo
+    mode: '0644'
+
+- name: Импорт GPG-ключа Jenkins
+  rpm_key:
+    key: https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
+    state: present
+
+- name: Установка Jenkins
+  yum:
+    name: jenkins
+    state: present
+
+# ============================================================
+# 3. systemd override: порт + JAVA_HOME
+# ============================================================
+- name: Создание директории для systemd override
+  file:
+    path: /etc/systemd/system/jenkins.service.d
+    state: directory
+    mode: '0755'
+
+- name: Override systemd для настройки порта и JAVA_HOME
+  copy:
+    dest: /etc/systemd/system/jenkins.service.d/override.conf
+    content: |
+      [Service]
+      Environment="JENKINS_PORT={{ jenkins_port }}"
+      Environment="JAVA_HOME={{ jenkins_java_home }}"
+    mode: '0644'
+  notify: restart jenkins
+
+- name: Перезагрузка systemd daemon
+  systemd:
+    daemon_reload: yes
+
+# ============================================================
+# 4. Первый запуск Jenkins
+# ============================================================
+- name: Сброс failed-статуса jenkins (если был)
+  command: systemctl reset-failed jenkins
+  changed_when: false
+  failed_when: false
+
+- name: Запуск и включение Jenkins
+  systemd:
+    name: jenkins
+    state: started
+    enabled: yes
+
+# ============================================================
+# 5. Настройка глобального URL Jenkins (критично для CLI)
+# ============================================================
+- name: Настройка глобального URL Jenkins
+  copy:
+    dest: /var/lib/jenkins/jenkins.model.JenkinsLocationConfiguration.xml
+    content: |
+      <?xml version='1.1' encoding='UTF-8'?>
+      <jenkins.model.JenkinsLocationConfiguration>
+        <jenkinsUrl>http://{{ ansible_default_ipv4.address }}:{{ jenkins_port }}/</jenkinsUrl>
+      </jenkins.model.JenkinsLocationConfiguration>
+    owner: jenkins
+    group: jenkins
+    mode: '0644'
+  notify: restart jenkins
+
+- name: Применение настроек Jenkins (flush handlers)
+  meta: flush_handlers
+
+- name: Ожидание запуска Jenkins после настройки URL
+  wait_for:
+    port: "{{ jenkins_port }}"
+    delay: 10
+    timeout: 180
+
+- name: Пауза для завершения инициализации
+  pause:
+    seconds: 20
+
+# ============================================================
+# 6. Firewalld
+# ============================================================
+- name: Открытие порта {{ jenkins_port }} в firewalld
+  firewalld:
+    port: "{{ jenkins_port }}/tcp"
+    permanent: yes
+    state: enabled
+    immediate: yes
+
+# ============================================================
+# 7. Проверка наличия initialAdminPassword (только после 1-й установки)
+# ============================================================
+- name: Проверка существования initialAdminPassword
+  stat:
+    path: /var/lib/jenkins/secrets/initialAdminPassword
+  register: jenkins_initial_password_file
+
+- name: Jenkins уже прошёл setup wizard (файл пароля отсутствует)
+  debug:
+    msg: "initialAdminPassword не найден — значит, setup wizard уже пройден. Установка плагинов пропущена."
+  when: not jenkins_initial_password_file.stat.exists
+
+# ============================================================
+# 8. Установка плагинов (ТОЛЬКО при первом запуске)
+# ============================================================
+- name: Чтение initialAdminPassword
+  slurp:
+    src: /var/lib/jenkins/secrets/initialAdminPassword
+  register: jenkins_initial_password
+  when: jenkins_initial_password_file.stat.exists
+
+- name: Скачивание Jenkins CLI
+  get_url:
+    url: "http://{{ ansible_default_ipv4.address }}:{{ jenkins_port }}/jnlpJars/jenkins-cli.jar"
+    dest: /opt/jenkins-cli.jar
+    mode: '0644'
+    timeout: 120
+  when: jenkins_initial_password_file.stat.exists
+
+- name: Установка плагинов через Jenkins CLI
+  shell: |
+    java -jar /opt/jenkins-cli.jar \
+      -s http://{{ ansible_default_ipv4.address }}:{{ jenkins_port }}/ \
+      -auth admin:{{ jenkins_initial_password.content | b64decode | trim }} \
+      install-plugin {{ item }} -deploy
+  loop: "{{ jenkins_plugins }}"
+  when: jenkins_initial_password_file.stat.exists
+  register: plugin_install
+  until: plugin_install.rc == 0
+  retries: 3
+  delay: 15
+  changed_when: plugin_install.rc == 0
+
+# ============================================================
+# 9. Перезапуск после установки плагинов (только если ставили)
+# ============================================================
+- name: Перезапуск Jenkins после установки плагинов
+  systemd:
+    name: jenkins
+    state: restarted
+  when: jenkins_initial_password_file.stat.exists
+
+- name: Ожидание Jenkins после перезапуска
+  wait_for:
+    port: "{{ jenkins_port }}"
+    delay: 10
+    timeout: 180
+...
+EOF
+```
 #### ЭТАП 4. handlers/main.yml
 ```bash
 cat <<'EOF' > /etc/ansible/roles/jenkins/handlers/main.yml
