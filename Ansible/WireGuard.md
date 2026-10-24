@@ -33,7 +33,7 @@ sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
 systemctl enable --now firewalld
 
 # Убедиться, что hostname корректный (для шаблона Jinja2)
-hostnamectl set-hostname centp08vpn   # на 10.1.100.9
+hostnamectl set-hostname centp08vpn   # на 10.1.100.21
 ```
 ##### 0.3. SSH-ключи с centManager на 10.1.100.9
 ```bash
@@ -316,8 +316,9 @@ Endpoint = {{ ansible_default_ipv4.address }}:{{ wg_port }}
 AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
 EOF
+```
 #### ЭТАП 6. handlers/main.yml — обработчики
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/wireguard/handlers/main.yml
 ---
 - name: restart wireguard
@@ -344,24 +345,15 @@ EOF
 ansible-playbook /etc/ansible/wireguard.yml
 ```
 Что произойдёт:
-
-Установится wireguard-dkms (компиляция модуля 2–5 минут) + wireguard-tools + qrencode.
-
-Загрузится модуль ядра wireguard.
-
-Сгенерируются ключи сервера и всех клиентов из wg_clients.
-
-Создадутся wg0.conf и клиентские конфиги.
-
-Включится IP-форвардинг и masquerade.
-
-Откроется UDP-порт 51820.
-
-Сервис wg-quick@wg0 запустится и добавится в автозагрузку.
-
-Ansible выведет публичный ключ сервера и его IP:порт.
-
-Ожидаемый результат: PLAY RECAP с failed=0.
+- Установится wireguard-dkms (компиляция модуля 2–5 минут) + wireguard-tools + qrencode.
+- Загрузится модуль ядра wireguard.
+- Сгенерируются ключи сервера и всех клиентов из wg_clients.
+- Создадутся wg0.conf и клиентские конфиги.
+- Включится IP-форвардинг и masquerade.
+- Откроется UDP-порт 51820.
+- Сервис wg-quick@wg0 запустится и добавится в автозагрузку.
+- Ansible выведет публичный ключ сервера и его IP:порт.
+- Ожидаемый результат: PLAY RECAP с failed=0.
 
 <img width="1111" height="305" alt="image" src="https://github.com/user-attachments/assets/b4b4244e-876a-4d92-8440-0d1f5b748666" />
 
