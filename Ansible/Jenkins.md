@@ -511,6 +511,8 @@ ansible jenkins -m shell -a "curl -s -o /dev/null -w '%{http_code}' http://10.1.
 
 <img width="1278" height="1113" alt="image" src="https://github.com/user-attachments/assets/b34f5380-4049-46a9-b575-6b0c0f13e69b" />
 
+<img width="1294" height="951" alt="image" src="https://github.com/user-attachments/assets/e178015a-4b03-48b4-908e-d8fde37e5f1c" />
+
 - Раздел Source Code Management → Git:
 - Repository URL: https://10.1.100.15/root/test-project.git (ваш GitLab).
 - Credentials: добавьте логин/пароль/ от GitLab через Add → Jenkins.
@@ -533,13 +535,18 @@ ansible jenkins -m shell -a "curl -s -o /dev/null -w '%{http_code}' http://10.1.
     - Description: например, Доступ к GitLab для сборки.
     - Нажмите Create.
 
-<img width="1294" height="951" alt="image" src="https://github.com/user-attachments/assets/e178015a-4b03-48b4-908e-d8fde37e5f1c" />
-
 <img width="1126" height="480" alt="image" src="https://github.com/user-attachments/assets/238415b8-f973-4caf-aecd-86bfd92f2c03" />
 
 
 Раздел Build Triggers → отметьте GitHub hook trigger for GITScm polling (если используете вебхуки).
-
+```bash
+[root@centpc09 jenkins]# sudo -H -u jenkins git config --global http.sslVerify false
+[root@centpc09 jenkins]# sudo -H -u jenkins git config --global --list | grep -i sslverify
+http.sslverify=false
+[root@centpc09 jenkins]# getent passwd jenkins
+jenkins:x:993:991:Jenkins Automation Server:/var/lib/jenkins:/bin/false
+[root@centpc09 jenkins]#
+```
 Раздел Build Steps → Add build step → Execute shell:
 
 ```bash
