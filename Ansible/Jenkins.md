@@ -444,31 +444,21 @@ EOF
 ```bash
 ansible-playbook /etc/ansible/jenkins.yml
 ```
-Что произойдёт (по шагам):
+##### Что произойдёт (по шагам):
+- Добавится репозиторий Adoptium, установится Temurin JDK 21.
+- Добавится репозиторий Jenkins, установится jenkins.
+- Создастся systemd override с портом 8080 и JAVA_HOME.
+- Jenkins запустится на Java 21.
+- Создастся JenkinsLocationConfiguration.xml с URL http://10.1.100.22:8080/.
+- Jenkins перезапустится (через flush_handlers).
+- Откроется порт 8080 в firewalld.
+- Ansible прочитает initialAdminPassword через slurp.
+- Скачает jenkins-cli.jar с того же URL.
+- Установит плагины через CLI (git, ansible, blueocean и др.).
+- Перезапустит Jenkins — плагины активируются.
+- Ожидаемый PLAY RECAP: failed=0.
 
-Добавится репозиторий Adoptium, установится Temurin JDK 21.
-
-Добавится репозиторий Jenkins, установится jenkins.
-
-Создастся systemd override с портом 8080 и JAVA_HOME.
-
-Jenkins запустится на Java 21.
-
-Создастся JenkinsLocationConfiguration.xml с URL http://10.1.100.22:8080/.
-
-Jenkins перезапустится (через flush_handlers).
-
-Откроется порт 8080 в firewalld.
-
-Ansible прочитает initialAdminPassword через slurp.
-
-Скачает jenkins-cli.jar с того же URL.
-
-Установит плагины через CLI (git, ansible, blueocean и др.).
-
-Перезапустит Jenkins — плагины активируются.
-
-Ожидаемый PLAY RECAP: failed=0.
+<img width="1115" height="1124" alt="image" src="https://github.com/user-attachments/assets/d1030933-c362-4cde-8e5f-867f30b0b368" />
 
 #### ЭТАП 7. Первый вход в браузере
 Получите пароль:
@@ -476,13 +466,12 @@ Ansible прочитает initialAdminPassword через slurp.
 ```bash
 ansible jenkins -m shell -a "cat /var/lib/jenkins/secrets/initialAdminPassword"
 ```
-Откройте http://10.1.100.22:8080
+- Откройте http://10.1.100.22:8080
+- Вставьте пароль.
+- Выберите «Install suggested plugins» (Jenkins пропустит уже установленные).
+- Создайте свою учётную запись администратора (логин/пароль запомните).
 
-Вставьте пароль.
-
-Выберите «Install suggested plugins» (Jenkins пропустит уже установленные).
-
-Создайте свою учётную запись администратора (логин/пароль запомните).
+<img width="1341" height="573" alt="image" src="https://github.com/user-attachments/assets/39e82424-a580-4862-8518-04df9321bcfc" />
 
 #### ЭТАП 8. Проверка после развёртывания
 ```bash
@@ -510,17 +499,24 @@ ansible jenkins -m shell -a "ls /var/lib/jenkins/plugins/ | wc -l"
 ansible jenkins -m shell -a "curl -s -o /dev/null -w '%{http_code}' http://10.1.100.22:8080/login"
 # Ожидаемо: 200
 ```
+
+<img width="1112" height="358" alt="image" src="https://github.com/user-attachments/assets/d3ecca91-8b49-4378-b8a1-c773607cd42c" />
+
 #### ЭТАП 9. Первая задача: сборка проекта
 ##### 9.1. Через веб-интерфейс
 На главной странице Jenkins → «Создать Item» (или New Item).
 
 Имя: my-project-build, тип: Freestyle project.
 
+<img width="1135" height="974" alt="image" src="https://github.com/user-attachments/assets/0078270d-590c-4d77-a0a6-1a09c736f4d5" />
+
 Раздел Source Code Management → Git:
 
 Repository URL: https://10.1.100.15/root/test-project.git (ваш GitLab).
 
 Credentials: добавьте логин/пароль от GitLab через Add → Jenkins.
+
+ 
 
 Раздел Build Triggers → отметьте GitHub hook trigger for GITScm polling (если используете вебхуки).
 
