@@ -7,16 +7,14 @@
                                           │ Wiki.js + PostgreSQL (Docker)
 ```
 
-Что будет сделано:
+#### Что будет сделано:
 
-На wikipc — Docker + Wiki.js + PostgreSQL через Ansible.
+- На wikipc — Docker + Wiki.js + PostgreSQL через Ansible.
+- На developers — Nginx как reverse proxy с самоподписанным сертификатом (SAN с developers, wikipc, IP-адресами), HTTP→HTTPS редирект, WebSocket для редактора Wiki.js.
+- Открыты только нужные порты: 443/tcp (и 80 для редиректа) на developers, 3000/tcp на wikipc (только для developers).
 
-На developers — Nginx как reverse proxy с самоподписанным сертификатом (SAN с developers, wikipc, IP-адресами), HTTP→HTTPS редирект, WebSocket для редактора Wiki.js.
-
-Открыты только нужные порты: 443/tcp (и 80 для редиректа) на developers, 3000/tcp на wikipc (только для developers).
-
-📋 ШАГ 0. Предварительные условия (руками, один раз)
-bash
+#### ШАГ 0. Предварительные условия (руками, один раз)
+```bash
 # На хосте 10.1.100.17 (wikipc):
 hostnamectl set-hostname wikipc
 setenforce 0
@@ -27,8 +25,9 @@ systemctl enable --now firewalld
 ssh-copy-id root@10.1.100.17
 ssh root@10.1.100.17 'hostname'
 # Ожидаемо: wikipc
-📁 ШАГ 1. Обновление инвентаря
-bash
+```
+#### ШАГ 1. Обновление инвентаря
+```bash
 cat <<'EOF' > /etc/ansible/hosts
 [servers]
 10.1.100.12 ansible_user=root
@@ -41,12 +40,14 @@ EOF
 # Проверка:
 ansible wiki -m ping
 ansible servers -m ping
-📦 ШАГ 2. Роль wikijs (развёртывание Wiki.js на wikipc)
-bash
+```
+#### ШАГ 2. Роль wikijs (развёртывание Wiki.js на wikipc)
+```bash
 mkdir -p /etc/ansible/roles/wikijs/{tasks,templates,defaults}
 mkdir -p /etc/ansible/roles/nginx_proxy/{tasks,templates,handlers,defaults}
-2.1. roles/wikijs/defaults/main.yml
-bash
+```
+##### 2.1. roles/wikijs/defaults/main.yml
+```bash
 cat <<'EOF' > /etc/ansible/roles/wikijs/defaults/main.yml
 ---
 wikijs_dir: /opt/wikijs
@@ -65,8 +66,9 @@ wikijs_db_password: "wikijsrocks"
 wikijs_image: "requarks/wiki:2"
 postgres_image: "postgres:15-alpine"
 EOF
-2.2. roles/wikijs/templates/docker-compose.yml.j2
-bash
+```
+##### 2.2. roles/wikijs/templates/docker-compose.yml.j2
+```bash
 cat <<'EOF' > /etc/ansible/roles/wikijs/templates/docker-compose.yml.j2
 version: "3.8"
 
@@ -110,10 +112,11 @@ networks:
   wikijs_net:
     driver: bridge
 EOF
-2.3. roles/wikijs/tasks/main.yml
+```
+##### 2.3. roles/wikijs/tasks/main.yml
 Используем shell: docker-compose up -d вместо модуля docker_compose_v2, чтобы не тянуть Docker SDK для Python 2.7 на wikipc — тот же приём, что уже применён в deploy_app.
 
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/wikijs/tasks/main.yml
 ---
 - name: Создание директории Wiki.js
@@ -153,9 +156,10 @@ cat <<'EOF' > /etc/ansible/roles/wikijs/tasks/main.yml
   delay: 5
   changed_when: false
 EOF
-🌐 ШАГ 3. Роль nginx_proxy (reverse proxy + SSL на developers)
-3.1. roles/nginx_proxy/defaults/main.yml
-bash
+```
+#### ШАГ 3. Роль nginx_proxy (reverse proxy + SSL на developers)
+##### 3.1. roles/nginx_proxy/defaults/main.yml
+```bash
 cat <<'EOF' > /etc/ansible/roles/nginx_proxy/defaults/main.yml
 ---
 proxy_server_name: developers
@@ -163,8 +167,9 @@ proxy_ip: 10.1.100.10
 wiki_ip: 10.1.100.17
 wiki_port: 3000
 EOF
-3.2. roles/nginx_proxy/templates/openssl-san.cnf.j2
-bash
+```
+##### 3.2. roles/nginx_proxy/templates/openssl-san.cnf.j2
+```bash
 cat <<'EOF' > /etc/ansible/roles/nginx_proxy/templates/openssl-san.cnf.j2
 [req]
 distinguished_name = req_distinguished_name
@@ -191,8 +196,9 @@ IP.1 = {{ proxy_ip }}
 IP.2 = {{ wiki_ip }}
 IP.3 = 127.0.0.1
 EOF
-3.3. roles/nginx_proxy/templates/wiki-proxy.conf.j2
-bash
+```
+##### 3.3. roles/nginx_proxy/templates/wiki-proxy.conf.j2
+```bash
 cat <<'EOF' > /etc/ansible/roles/nginx_proxy/templates/wiki-proxy.conf.j2
 # HTTP -> HTTPS редирект
 server {
@@ -241,8 +247,9 @@ server {
     }
 }
 EOF
-3.4. roles/nginx_proxy/handlers/main.yml
-bash
+```
+##### 3.4. roles/nginx_proxy/handlers/main.yml
+```bash
 cat <<'EOF' > /etc/ansible/roles/nginx_proxy/handlers/main.yml
 ---
 - name: restart nginx
@@ -250,8 +257,9 @@ cat <<'EOF' > /etc/ansible/roles/nginx_proxy/handlers/main.yml
     name: nginx
     state: restarted
 EOF
-3.5. roles/nginx_proxy/tasks/main.yml
-bash
+```
+##### 3.5. roles/nginx_proxy/tasks/main.yml
+```bash
 cat <<'EOF' > /etc/ansible/roles/nginx_proxy/tasks/main.yml
 ---
 - name: Установка nginx
@@ -332,8 +340,9 @@ cat <<'EOF' > /etc/ansible/roles/nginx_proxy/tasks/main.yml
     state: started
     enabled: yes
 EOF
-🚀 ШАГ 4. Плейбук wikiportal.yml
-bash
+```
+#### ШАГ 4. Плейбук wikiportal.yml
+```bash
 cat <<'EOF' > /etc/ansible/wikiportal.yml
 ---
 - name: Развёртывание Wiki.js на wikipc
@@ -351,13 +360,15 @@ cat <<'EOF' > /etc/ansible/wikiportal.yml
     - nginx_proxy
 ...
 EOF
-▶️ ШАГ 5. Запуск
-bash
+```
+#### ШАГ 5. Запуск
+```bash
 ansible-playbook /etc/ansible/wikiportal.yml --syntax-check
 ansible-playbook /etc/ansible/wikiportal.yml
+```
 # Ожидаемо: failed=0 на всех трёх хостах (wikipc + localhost developers)
-✅ ШАГ 6. Проверки
-bash
+#### ШАГ 6. Проверки
+```bash
 # 1. Контейнеры на wikipc
 ansible wiki -m shell -a "docker ps --filter name=wikijs --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
 
@@ -388,26 +399,29 @@ curl -k -s https://10.1.100.10 | grep -i 'wiki'
 # 8. Проксирование через VIP (веб-кластер) не сломано
 for i in 1 2 3; do curl -s http://10.1.100.100 | grep -oP 'Имя хоста:.*?<b>\K[^<]+'; done
 # Ожидаемо: web-server12 / web-server14 / web-server12
-🌐 ШАГ 7. Вход в Wiki.js
+```
+#### ШАГ 7. Вход в Wiki.js
 Откройте в браузере:
 
-text
+```text
 https://10.1.100.10
+
 Примите предупреждение самоподписанного сертификата («Дополнительно» → «Перейти»).
 
 Логин: admin@example.com
 Пароль: ChangeMe123!
-
+```
 Смените пароль администратора сразу после первого входа — переменные ADMIN_PASS из docker-compose.yml используются только при первой инициализации БД. Если БД уже создана (том db/ существует), повторный запуск docker-compose up пароль не изменит.
 
 Чтобы открывать Wiki.js по имени developers или wikipc, добавьте на клиентской машине в /etc/hosts:
 
-bash
+```bash
 echo "10.1.100.10 developers wikipc" >> /etc/hosts
 Тогда https://developers и https://wikipc будут работать без предупреждения о несовпадении имени (SAN содержит оба имени и оба IP).
-
-🔥 Итоговые правила firewall
-Хост	Порты	Назначение
-developers (10.1.100.10)	80/tcp, 443/tcp	Nginx (HTTP-редирект + HTTPS-прокси)
-wikipc (10.1.100.17)	3000/tcp	Wiki.js (только для developers)
-.12 / .14	без изменений	Веб-кластер, как было
+```
+#### Итоговые правила firewall
+Хост	|Порты	|Назначение
+----- | -------- | --------
+developers (10.1.100.10)		|80/tcp, 443/tcp		|Nginx (HTTP-редирект + HTTPS-прокси)
+wikipc (10.1.100.17)		|3000/tcp		|Wiki.js (только для developers)
+.12 / .14	 |без изменений	 |Веб-кластер, как было
