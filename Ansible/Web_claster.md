@@ -52,6 +52,10 @@ ansible servers -m ping
 ```
 Если ping не проходит — дальше идти нельзя. Разбирайтесь с SSH/ключами/сетью.
 
+#### 0.6. Удалить системный nginx (если он был)
+```bash
+ansible gitlab -m shell -a "systemctl stop nginx 2>/dev/null; systemctl disable nginx 2>/dev/null; yum remove -y nginx"
+```
 #### ЧАСТЬ 1. Структура ролей (создать один раз)
 ```bash
 mkdir -p /etc/ansible/roles/{webserver,backup,security,docker,deploy_app,loadbalancer,syslog}/{tasks,templates,handlers,defaults}
