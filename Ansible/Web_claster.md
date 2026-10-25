@@ -43,7 +43,7 @@ yum ins
 # Проверить версию (должна быть 2.9+)
 ansible --version
 ```
-##### 0.2. Все три хоста (.12, .14, centpca)
+##### 0.2. Все три хоста (10.1.100.12, 10.1.100.14, developer 10.1.100.10)
 ```bash
 # Отключить SELinux (или оставить Enforcing — роль deploy_app ставит seboolean)
 # Если оставляете Enforcing — ничего не делайте, роль справится.
@@ -55,8 +55,8 @@ sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
 systemctl enable --now firewalld
 
 # Убедиться, что hostname корректный (для шаблона Jinja2)
-hostnamectl set-hostname centpc1   # на .12
-hostnamectl set-hostname centpc3   # на .14
+hostnamectl set-hostname web-server12   # на .12
+hostnamectl set-hostname web-server14  # на .14
 ```
 ##### 0.3. SSH-ключи с centpca на .12 и .14
 ```bash
@@ -610,7 +610,7 @@ cat <<'EOF' > /etc/ansible/roles/syslog/tasks/main.yml
   when: inventory_hostname == '10.1.100.12'
   notify: restart rsyslog
 
-# === КЛИЕНТ (10.1.100.14) — ИСПРАВЛЕНО: + локальный UDP-приёмник для HAProxy ===
+# === КЛИЕНТ (10.1.100.14): + локальный UDP-приёмник для HAProxy ===
 - name: Конфигурация Rsyslog как Клиента + локальный UDP-приёмник для HAProxy
   copy:
     dest: /etc/rsyslog.d/client.conf
@@ -683,6 +683,8 @@ ansible-playbook /etc/ansible/site.yml
 ```
 Ожидаемо в PLAY RECAP: failed=0 на обоих хостах. Первый прогон будет changed=много (всё создаётся с нуля). Второй прогон — changed=мало (идемпотентность).
 
+<img width="1113" height="425" alt="image" src="https://github.com/user-attachments/assets/86e0f5cd-ef23-4970-ab9a-16cf06ee940b" />
+
 #### ЧАСТЬ 4. Финальные проверки
 ```bash
 # 1. Оба backend'а UP
@@ -692,13 +694,21 @@ ansible servers -m shell -a "echo 'show stat' | socat stdio /var/run/haproxy.soc
 # 2. VIP на MASTER
 ansible servers -m shell -a "ip addr show ens33 | grep 10.1.100.100 || echo NO_VIP"
 # Ожидаемо: на .12 — VIP, на .14 — NO_VIP
+```
 
+<img width="1115" height="336" alt="image" src="https://github.com/user-attachments/assets/d33e1c27-5c03-44d9-af1b-c2ded9f68668" />
+
+```bash
 # 3. Балансировка через VIP
 for i in 1 2 3 4 5 6; do curl -s http://10.1.100.100 | grep -oP 'Имя хоста:.*?<b>\K[^<]+'; done
 for i in 1 2 3 4 5 6; do curl -s http://10.1.100.100 | grep -oP '<b>\K[^<]+'; done
 for i in 1 2 3 4 5 6; do curl -s http://10.1.100.100 | sed -n 's/.*e91e63;"><b>\([^<]*\)<.*/\1/p'; done
-# Ожидаемо: centpc1 / centpc3 / centpc1 / centpc3 / ...
+# Ожидаемо: web-server12 / web-server14 / web-server12 / web-server14 / ...
+```
 
+<img width="1115" height="322" alt="image" src="https://github.com/user-attachments/assets/9bd375e7-752c-4626-8664-e940654b7b86" />
+
+```bash
 # 4. Stats в браузере
 curl -s http://10.1.100.12:8404/stats | grep web_node
 # Ожидаемо: оба UP
@@ -709,9 +719,13 @@ ansible servers -m shell -a "firewall-cmd --list-ports; firewall-cmd --list-rich
 
 # 6. Шаблон через контейнер
 ansible servers -m shell -a "curl -s http://127.0.0.1:8080 | grep 'Имя хоста:'"
-# Ожидаемо: centpc1 / centpc3
+# Ожидаемо: web-server12 / web-server14 
 ```
-Сводка: что делает каждая роль
+
+<img width="1112" height="274" alt="image" src="https://github.com/user-attachments/assets/dcdfcbcf-066e-4292-ac0c-2550e73a97dd" />
+
+##### Что делает каждая роль
+
 Роль	| Что делает	| Ключевые фиксы
 ------|-------------|-----------------
 webserver | Ставит nginx, генерирует index.html из Jinja2 | 	Шаблон в /usr/share/nginx/html
@@ -722,24 +736,24 @@ deploy_app	 | Контейнер nginx:1.21 с монтированием шаб
 loadbalancer	 | HAProxy roundrobin, Keepalived VIP, stats	VRRP в firewalld, порт 81, порт 8404, psmisc, socat, stats socket
 syslog	 | rsyslog сервер/клиент, логи HAProxy	—
 
-Что не автоматизировано (руками, один раз)
-- SSH-ключи с centpca на .12 и .14 — ssh-copy-id
-- Ansible установлен на centpca
+##### Что не автоматизировано (руками, один раз)
+- SSH-ключи с 10.1.100.10 на 10.1.100.12 и 10.1.100.14 — ssh-copy-id
+- Ansible установлен на developers 10.1.100.10
 - Инвентарь /etc/ansible/hosts создан
-- Hostname на хостах (centpc1, centpc3) — для шаблона Jinja2
+- Hostname на хостах (web-server12, web-server14 ) — для шаблона Jinja2
 - firewalld запущен на хостах (роль его запустит, но если он не установлен — yum install firewalld вручную)
 
 Всё остальное — ansible-playbook /etc/ansible/site.yml с нуля за один прогон.
 
 Порядок действий «с нуля» (кратко)
 ```text
-1. yum install -y epel-release ansible           (на centpca)
-2. ssh-keygen + ssh-copy-id на .12 и .14        (на centpca)
+1. yum install -y epel-release ansible           (на developers)
+2. ssh-keygen + ssh-copy-id на .12 и .14        (на developers)
 3. hostnamectl set-hostname centpc1/centpc3     (на хостах)
-4. Создать /etc/ansible/hosts                   (на centpca)
+4. Создать /etc/ansible/hosts                   (на developers)
 5. ansible servers -m ping                      (проверка)
-6. Создать все файлы ролей (cat <<'EOF' выше)   (на centpca)
+6. Создать все файлы ролей (cat <<'EOF' выше)   (на developers)
 7. ansible-playbook /etc/ansible/site.yml       (запуск)
-8. Проверки (curl, socat, ip addr)              (на centpca)
+8. Проверки (curl, socat, ip addr)              (на developers)
 ```
 После этого стенд работает: балансировка, отказоустойчивость, stats, шаблон Jinja2 через VIP.
