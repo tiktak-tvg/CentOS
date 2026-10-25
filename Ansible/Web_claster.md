@@ -151,7 +151,7 @@ cat <<'EOF' > /etc/ansible/roles/webserver/templates/index.html.j2
 
         <table style="width: 100%; text-align: left; margin-top: 20px; border-collapse: collapse;">
             <tr style="background: #f8f9fa;"><th style="padding: 10px;">Параметр</th><th style="padding: 10px;">Значение</th></tr>
-            <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">Имя хоста:</td><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #e91e63;">{{ ansible_hostname }}</td></tr>
+            <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">Имя хоста:</td><td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #e91e63;"><b>{{ ansible_hostname }}</b></td></tr>
             <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">IP-адрес:</td><td style="padding: 10px; border-bottom: 1px solid #eee; font-family: monospace;">{{ inventory_hostname }}</td></tr>
             <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">ОС сервера:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">{{ ansible_distribution }} {{ ansible_distribution_version }}</td></tr>
             <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">Ядер CPU:</td><td style="padding: 10px; border-bottom: 1px solid #eee;">{{ ansible_processor_vcpus }}</td></tr>
@@ -694,7 +694,9 @@ ansible servers -m shell -a "ip addr show ens33 | grep 10.1.100.100 || echo NO_V
 # Ожидаемо: на .12 — VIP, на .14 — NO_VIP
 
 # 3. Балансировка через VIP
-for i in 1 2 3 4 5 6; do curl -s http://10.1.100.100 | grep -oP 'Имя хоста: <b>\K[^<]+'; done
+for i in 1 2 3 4 5 6; do curl -s http://10.1.100.100 | grep -oP 'Имя хоста:.*?<b>\K[^<]+'; done
+for i in 1 2 3 4 5 6; do curl -s http://10.1.100.100 | grep -oP '<b>\K[^<]+'; done
+for i in 1 2 3 4 5 6; do curl -s http://10.1.100.100 | sed -n 's/.*e91e63;"><b>\([^<]*\)<.*/\1/p'; done
 # Ожидаемо: centpc1 / centpc3 / centpc1 / centpc3 / ...
 
 # 4. Stats в браузере
