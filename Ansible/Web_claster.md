@@ -91,7 +91,6 @@ ansible gitlab -m shell -a "systemctl stop nginx 2>/dev/null; systemctl disable 
 #### ЧАСТЬ 1. Структура ролей (создать один раз)
 ```bash
 mkdir -p /etc/ansible/roles/{webserver,backup,security,docker,deploy_app,loadbalancer,syslog}/{tasks,templates,handlers,defaults}
-mkdir -p /etc/ansible/roles/webserver/templates
 ```
 #### ЧАСТЬ 2. Конфиги Ansible (по порядку)
 ##### 2.1. site.yml — главный плейбук
@@ -115,7 +114,6 @@ EOF
 Порядок критичен: webserver (шаблон) → deploy_app (монтирует его в контейнер) → loadbalancer (VRRP + порты).
 
 ##### 2.2. Роль webserver
-roles/webserver/tasks/main.yml
 ```bash
 cat <<'EOF' > /etc/ansible/roles/webserver/tasks/main.yml
 ---
@@ -138,7 +136,7 @@ cat <<'EOF' > /etc/ansible/roles/webserver/tasks/main.yml
 ...
 EOF
 ```
-roles/webserver/templates/index.html.j2
+##### index.html.j2
 ```bash
 cat <<'EOF' > /etc/ansible/roles/webserver/templates/index.html.j2
 <html>
@@ -208,7 +206,7 @@ cat <<'EOF' > /etc/ansible/roles/security/tasks/main.yml
     state: present
   notify: restart sshd
 
-- name: Отключение прямого удаленного входа для root (опционально)
+- name: Отключение прямого удаленного входа для root
   lineinfile:
     path: /etc/ssh/sshd_config
     regexp: '^#?PermitRootLogin'
@@ -246,12 +244,12 @@ cat <<'EOF' > /etc/ansible/roles/docker/tasks/main.yml
   yum:
     update_cache: yes
 
-- name: Установка Docker CE и зависимостей
+- name: Установка Docker CE 20.10.24 (совместимо с Python 2.7 / docker SDK 4.4.4)
   yum:
     name:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
+      - "docker-ce-20.10.24*"
+      - "docker-ce-cli-20.10.24*"
+      - "containerd.io"
     state: present
 
 - name: Запуск службы Docker и добавление в автозагрузку
@@ -260,7 +258,7 @@ cat <<'EOF' > /etc/ansible/roles/docker/tasks/main.yml
     state: started
     enabled: yes
 
-- name: Скачивание и установка Docker Compose
+- name: Скачивание и установка Docker Compose v2
   get_url:
     url: https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-linux-x86_64
     dest: /usr/local/bin/docker-compose
@@ -274,6 +272,19 @@ roles/deploy_app/tasks/main.yml
 cat <<'EOF' > /etc/ansible/roles/deploy_app/tasks/main.yml
 ---
 # tasks file for deploy_app
+
+# === Предварительные пакеты ===
+- name: Установка EPEL-репозитория (для python2-pip)
+  yum:
+    name: epel-release
+    state: present
+
+- name: Установка python2-pip (обеспечивает pip2 для Ansible pip-модуля)
+  yum:
+    name: python2-pip
+    state: present
+
+# === Очистка конфликтов ===
 - name: Удаление старых конфликтующих конфигов Nginx
   file:
     path: "{{ item }}"
@@ -282,13 +293,13 @@ cat <<'EOF' > /etc/ansible/roles/deploy_app/tasks/main.yml
     - /etc/nginx/conf.d/default.conf
     - /etc/nginx/conf.d/app_proxy.conf
 
-- name: Установка системного certifi из EPEL (защита от синтаксических ошибок Python 3)
+- name: Установка системного certifi из EPEL
   yum:
     name: python2-certifi
     state: present
   ignore_errors: yes
 
-- name: Удаление конфликтующего старого docker-py (иначе docker_container не работает)
+- name: Удаление конфликтующего старого docker-py
   shell: |
     pip2 uninstall -y docker-py 2>/dev/null || true
     pip2 uninstall -y docker 2>/dev/null || true
@@ -298,11 +309,13 @@ cat <<'EOF' > /etc/ansible/roles/deploy_app/tasks/main.yml
     warn: false
   changed_when: false
 
-- name: Установка совместимого с Python 2.7 Docker SDK (без docker-py, с фиксированными requests/urllib3)
+# === Установка Docker SDK для Python 2.7 ===
+- name: Установка совместимого с Python 2.7 Docker SDK
   pip:
     name:
       - "requests<2.28"
       - "urllib3<1.27"
+      - "websocket-client<1.0.0"
       - "docker==4.4.4"
     state: present
     extra_args: "--no-cache-dir"
@@ -314,13 +327,14 @@ cat <<'EOF' > /etc/ansible/roles/deploy_app/tasks/main.yml
   changed_when: false
   failed_when: docker_sdk_version.rc != 0
 
-- name: Разрешить Nginx сетевые подключения (Исправление 502 Bad Gateway из-за SELinux)
+# === SELinux и контейнер ===
+- name: Разрешить Nginx сетевые подключения (фикс 502 Bad Gateway из-за SELinux)
   seboolean:
     name: httpd_can_network_connect
     state: yes
     persistent: yes
 
-- name: Создание локальной директории для кастомной страницы приложения с правами 0755
+- name: Создание директории для кастомной страницы приложения
   file:
     path: /usr/share/nginx/html
     state: directory
@@ -332,7 +346,7 @@ cat <<'EOF' > /etc/ansible/roles/deploy_app/tasks/main.yml
     warn: false
   changed_when: false
 
-- name: Запуск Docker-контейнера с веб-приложением (шаблон Jinja2 монтируется внутрь)
+- name: Запуск Docker-контейнера с веб-приложением
   docker_container:
     name: web_app_container
     image: nginx:1.21
@@ -344,6 +358,7 @@ cat <<'EOF' > /etc/ansible/roles/deploy_app/tasks/main.yml
       - /usr/share/nginx/html:/usr/share/nginx/html:ro
     restart_policy: always
 
+# === Проксирование Nginx :81 → контейнер :8080 ===
 - name: Создание стабильной конфигурации проксирования через localhost на порт 81
   copy:
     dest: /etc/nginx/conf.d/app_proxy.conf
@@ -360,7 +375,7 @@ cat <<'EOF' > /etc/ansible/roles/deploy_app/tasks/main.yml
           }
       }
 
-- name: Проверка синтаксиса конфигурации Nginx перед перезапуск-триггером
+- name: Проверка синтаксиса конфигурации Nginx
   command: nginx -t
   changed_when: false
 
@@ -370,7 +385,7 @@ cat <<'EOF' > /etc/ansible/roles/deploy_app/tasks/main.yml
     state: restarted
     enabled: yes
 
-- name: Проверка, что контейнер отдаёт шаблон Jinja2 (а не дефолтную страницу nginx)
+- name: Проверка, что контейнер отдаёт шаблон Jinja2
   shell: curl -s http://127.0.0.1:8080 | grep -E 'Имя хоста:|ОС сервера:'
   args:
     warn: false
@@ -386,7 +401,8 @@ roles/loadbalancer/tasks/main.yml
 cat <<'EOF' > /etc/ansible/roles/loadbalancer/tasks/main.yml
 ---
 # tasks file for loadbalancer (HAProxy + Keepalived VIP)
-- name: Установка пакетов haproxy, keepalived, psmisc (killall) и socat (stats)
+
+- name: Установка пакетов haproxy, keepalived, psmisc и socat
   yum:
     name:
       - haproxy
@@ -396,14 +412,14 @@ cat <<'EOF' > /etc/ansible/roles/loadbalancer/tasks/main.yml
     state: present
   tags: loadbalancer
 
-- name: Убедиться, что firewalld установлен (RedHat)
+- name: Убедиться, что firewalld установлен
   yum:
     name: firewalld
     state: present
   when: ansible_os_family == "RedHat"
   tags: [loadbalancer, firewalld]
 
-- name: Убедиться, что firewalld запущен и в автозагрузке (RedHat)
+- name: Убедиться, что firewalld запущен и в автозагрузке
   systemd:
     name: firewalld
     state: started
@@ -411,6 +427,7 @@ cat <<'EOF' > /etc/ansible/roles/loadbalancer/tasks/main.yml
   when: ansible_os_family == "RedHat"
   tags: [loadbalancer, firewalld]
 
+# === ПРАВИЛА FIREWALLD ===
 - name: Разрешить VRRP в firewalld (иначе split-brain Keepalived)
   firewalld:
     rich_rule: 'rule protocol value="vrrp" accept'
@@ -420,7 +437,16 @@ cat <<'EOF' > /etc/ansible/roles/loadbalancer/tasks/main.yml
   when: ansible_os_family == "RedHat"
   tags: [loadbalancer, firewalld]
 
-- name: Открыть порт 81/tcp в firewalld (nginx :81 для HAProxy healthcheck)
+- name: Открыть порт 80/tcp (HAProxy frontend) — НОВОЕ
+  firewalld:
+    port: 80/tcp
+    permanent: yes
+    state: enabled
+    immediate: yes
+  when: ansible_os_family == "RedHat"
+  tags: [loadbalancer, firewalld]
+
+- name: Открыть порт 81/tcp (nginx :81 для HAProxy healthcheck)
   firewalld:
     port: 81/tcp
     permanent: yes
@@ -429,7 +455,7 @@ cat <<'EOF' > /etc/ansible/roles/loadbalancer/tasks/main.yml
   when: ansible_os_family == "RedHat"
   tags: [loadbalancer, firewalld]
 
-- name: Открыть порт 8404/tcp в firewalld (HAProxy stats в браузере)
+- name: Открыть порт 8404/tcp (HAProxy stats)
   firewalld:
     port: 8404/tcp
     permanent: yes
@@ -438,7 +464,8 @@ cat <<'EOF' > /etc/ansible/roles/loadbalancer/tasks/main.yml
   when: ansible_os_family == "RedHat"
   tags: [loadbalancer, firewalld]
 
-- name: Настройка конфигурации HAProxy (Балансировка веб-кластера + stats)
+# === HAPROXY ===
+- name: Настройка конфигурации HAProxy
   copy:
     dest: /etc/haproxy/haproxy.cfg
     content: |
@@ -494,6 +521,7 @@ cat <<'EOF' > /etc/ansible/roles/loadbalancer/tasks/main.yml
     enabled: yes
   tags: loadbalancer
 
+# === KEEPALIVED (интерфейс — автоматически) ===
 - name: Настройка Keepalived для хоста 10.1.100.12 (MASTER)
   copy:
     dest: /etc/keepalived/keepalived.conf
@@ -506,7 +534,7 @@ cat <<'EOF' > /etc/ansible/roles/loadbalancer/tasks/main.yml
 
       vrrp_instance VI_1 {
           state MASTER
-          interface ens33
+          interface {{ ansible_default_ipv4.interface }}
           virtual_router_id 51
           priority 101
           advert_int 1
@@ -536,7 +564,7 @@ cat <<'EOF' > /etc/ansible/roles/loadbalancer/tasks/main.yml
 
       vrrp_instance VI_1 {
           state BACKUP
-          interface ens33
+          interface {{ ansible_default_ipv4.interface }}
           virtual_router_id 51
           priority 100
           advert_int 1
@@ -568,7 +596,8 @@ roles/syslog/tasks/main.yml
 ```bash
 cat <<'EOF' > /etc/ansible/roles/syslog/tasks/main.yml
 ---
-- name: Конфигурация Rsyslog как Центрального Сервера (Приемника)
+# === СЕРВЕР (10.1.100.12) ===
+- name: Конфигурация Rsyslog как Сервера (Приемника)
   copy:
     dest: /etc/rsyslog.d/server.conf
     content: |
@@ -578,29 +607,48 @@ cat <<'EOF' > /etc/ansible/roles/syslog/tasks/main.yml
       input(type="imtcp" port="514")
       $template RemoteLogs,"/var/log/remote/%HOSTNAME%/%PROGRAMNAME%.log"
       *.* ?RemoteLogs
-      & stop
   when: inventory_hostname == '10.1.100.12'
   notify: restart rsyslog
 
-- name: Конфигурация Rsyslog как Клиента (Отправителя)
+# === КЛИЕНТ (10.1.100.14) — ИСПРАВЛЕНО: + локальный UDP-приёмник для HAProxy ===
+- name: Конфигурация Rsyslog как Клиента + локальный UDP-приёмник для HAProxy
   copy:
     dest: /etc/rsyslog.d/client.conf
     content: |
+      # Локальный UDP-приёмник (HAProxy логирует на 127.0.0.1:514)
+      module(load="imudp")
+      input(type="imudp" port="514")
+      # Форвардинг всех логов на центральный сервер
       *.* @@10.1.100.12:514
   when: inventory_hostname == '10.1.100.14'
   notify: restart rsyslog
+
+# === FIREWALL: 514 открываем ТОЛЬКО на сервере логов (.12) ===
+- name: Открыть порты 514/tcp и 514/udp (только на сервере логов)
+  firewalld:
+    port: "{{ item }}"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  loop:
+    - 514/tcp
+    - 514/udp
+  when:
+    - ansible_os_family == "RedHat"
+    - inventory_hostname == '10.1.100.12'
+  tags: syslog
 
 - name: Проверка синтаксиса конфигурации Rsyslog
   command: rsyslogd -N1
   changed_when: false
 
-- name: Перезапуск службы Rsyslog для применения настроек
+- name: Перезапуск службы Rsyslog
   service:
     name: rsyslog
     state: restarted
     enabled: yes
 
-- name: Настройка логирования HAProxy в Syslog (проверка файла конфигурации)
+- name: Логирование HAProxy в отдельный файл
   lineinfile:
     path: /etc/rsyslog.d/haproxy.conf
     line: 'local2.*    /var/log/haproxy.log'
@@ -613,8 +661,9 @@ cat <<'EOF' > /etc/ansible/roles/syslog/tasks/main.yml
     state: restarted
 ...
 EOF
+```
 roles/syslog/handlers/main.yml
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/syslog/handlers/main.yml
 ---
 - name: restart rsyslog
