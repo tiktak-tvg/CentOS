@@ -84,6 +84,8 @@ ansible servers -m ping
 ```
 Если ping не проходит — дальше идти нельзя. Разбирайтесь с SSH/ключами/сетью.
 
+<img width="1112" height="308" alt="image" src="https://github.com/user-attachments/assets/8bf81dc9-678e-4a77-8a19-e892abaea95d" />
+
 #### 0.6. Удалить системный nginx (если он был)
 ```bash
 ansible gitlab -m shell -a "systemctl stop nginx 2>/dev/null; systemctl disable nginx 2>/dev/null; yum remove -y nginx"
