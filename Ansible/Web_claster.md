@@ -726,17 +726,19 @@ ansible servers -m shell -a "curl -s http://127.0.0.1:8080 | grep 'Имя хос
 
 <img width="1112" height="274" alt="image" src="https://github.com/user-attachments/assets/dcdfcbcf-066e-4292-ac0c-2550e73a97dd" />
 
-##### Что делает каждая роль
-
-Роль	| Что делает	| Ключевые фиксы
+##### Результаты финальных проверок
+Проверка		|Результат		|Статус
 ------|-------------|-----------------
-webserver | Ставит nginx, генерирует index.html из Jinja2 | 	Шаблон в /usr/share/nginx/html
-backup	 | /var/backups/web, скрипт, cron 03:30	 | —
-security	 | SSH: только ключи, root не логинится	 | —
-docker	 | Docker CE, Compose | 	—
-deploy_app	 | Контейнер nginx:1.21 с монтированием шаблона,  | nginx :81 → :8080	volumes, recreate, удаление docker-py, requests<2.28
-loadbalancer	 | HAProxy roundrobin, Keepalived VIP, stats	VRRP в firewalld, порт 81, порт 8404, psmisc, socat, stats socket
-syslog	 | rsyslog сервер/клиент, логи HAProxy	—
+PLAY RECAP		|failed=0 на .12 и .14		|✅
+HAProxy backends		|web_node1 UP, web_node2 UP		|✅
+VIP 10.1.100.100		|только на .12 (MASTER), на .14 — NO_VIP		|✅ Split-brain исключён
+Roundrobin (3 варианта regex)		|12, 14, 12, 14, 12, 14		|✅ Балансировка работает
+HAProxy Stats		|9 сессий на каждый backend, 100 % HTTP 2xx		|✅
+firewalld .12	 	|80, 81, 8404, 514/tcp, 514/udp + VRRP		|✅
+firewalld .14	 	|80, 81, 8404 + VRRP		|✅
+Контейнер на :8080	 	|отдаёт web-server12 / web-server14		|✅ Jinja2-шаблон смонтирован
+SSH на хосты		|web-server12 / web-server14		|✅
+Ansible ping		|SUCCESS на обоих		|✅
 
 ##### Что не автоматизировано (руками, один раз)
 - SSH-ключи с 10.1.100.10 на 10.1.100.12 и 10.1.100.14 — ssh-copy-id
@@ -745,17 +747,16 @@ syslog	 | rsyslog сервер/клиент, логи HAProxy	—
 - Hostname на хостах (web-server12, web-server14 ) — для шаблона Jinja2
 - firewalld запущен на хостах (роль его запустит, но если он не установлен — yum install firewalld вручную)
 
-Всё остальное — ansible-playbook /etc/ansible/site.yml с нуля за один прогон.
+Компонент		             |Состояние
+------|-------------
+HAProxy		|Балансировка roundrobin между .12:81 и .14:81, оба UP
+Keepalived		|VIP 10.1.100.100 на MASTER (.12), при отказе переедет на .14
+Nginx		|Проксирует :81 → Docker-контейнер :8080
+Docker		|Зафиксирована версия 20.10.24, совместима с Python 2.7 / SDK 4.4.4
+rsyslog		|Централизованный приём на .12 (/var/log/remote/web-server12, web-server14), локальные HAProxy-логи на обоих
+backup		|Cron 03:30, архивы в /var/backups/web, ротация 7 дней
+firewalld		|80, 81, 8404 на обоих; 514/tcp+udp только на сервере логов; VRRP rich-rule на обоих
+security		|SSH только по ключам, PermitRootLogin prohibit-password
+Jinja2-шаблон		|Отдаётся через контейнер, содержит ansible_hostname, inventory_hostname, ОС, число CPU
 
-Порядок действий «с нуля» (кратко)
-```text
-1. yum install -y epel-release ansible           (на developers)
-2. ssh-keygen + ssh-copy-id на .12 и .14        (на developers)
-3. hostnamectl set-hostname centpc1/centpc3     (на хостах)
-4. Создать /etc/ansible/hosts                   (на developers)
-5. ansible servers -m ping                      (проверка)
-6. Создать все файлы ролей (cat <<'EOF' выше)   (на developers)
-7. ansible-playbook /etc/ansible/site.yml       (запуск)
-8. Проверки (curl, socat, ip addr)              (на developers)
-```
 После этого стенд работает: балансировка, отказоустойчивость, stats, шаблон Jinja2 через VIP.
