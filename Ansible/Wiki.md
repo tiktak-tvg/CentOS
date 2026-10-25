@@ -424,4 +424,4 @@ echo "10.1.100.10 developers wikipc" >> /etc/hosts
 ----- | -------- | --------
 developers (10.1.100.10)		|80/tcp, 443/tcp		|Nginx (HTTP-редирект + HTTPS-прокси)
 wikipc (10.1.100.17)		|3000/tcp		|Wiki.js (только для developers)
-.12 / .14	 |без изменений	 |Веб-кластер, как было
+
