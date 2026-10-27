@@ -426,6 +426,8 @@ echo "10.1.100.10 developers wikipc" >> /etc/hosts
 
 <img width="1180" height="452" alt="image" src="https://github.com/user-attachments/assets/6a7d9c24-b3dc-4fee-abd4-c009788df357" />
 
+<img width="1257" height="362" alt="image" src="https://github.com/user-attachments/assets/2f8c824e-a4df-4517-ad8e-a48d66208ed5" />
+
 ##### Разница между этими двумя адресами — это разница между правильной архитектурой и прямым доступом к бэкенду.
 
 Вот подробная разница:
