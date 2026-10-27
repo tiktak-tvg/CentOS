@@ -146,15 +146,25 @@ cat <<'EOF' > /etc/ansible/roles/wikijs/tasks/main.yml
     immediate: yes
   when: ansible_os_family == "RedHat"
 
-- name: Ожидание готовности Wiki.js
-  uri:
-    url: "http://127.0.0.1:{{ wikijs_port }}"
-    status_code: 200
-  register: wikijs_ready
-  until: wikijs_ready.status == 200
-  retries: 30
-  delay: 5
+#- name: Ожидание готовности Wiki.js
+#  uri:
+#    url: "http://127.0.0.1:{{ wikijs_port }}"
+#    status_code: 200
+#  register: wikijs_ready
+#  until: wikijs_ready.status == 200
+#  retries: 30
+#  delay: 5
+#  changed_when: false
+# ИСПРАВЛЕНО: Используем wait_for для проверки TCP-порта вместо HTTP-статуса.
+# Это исключает зависания при редиректах (302) на локализованные страницы.
+- name: Ожидание открытия порта Wiki.js
+  wait_for:
+    host: 127.0.0.1
+    port: "{{ wikijs_port }}"
+    delay: 5
+    timeout: 300
   changed_when: false
+
 EOF
 ```
 #### ШАГ 3. Роль nginx_proxy (reverse proxy + SSL на developers)
