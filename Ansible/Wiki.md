@@ -376,6 +376,9 @@ EOF
 ansible-playbook /etc/ansible/wikiportal.yml --syntax-check
 ansible-playbook /etc/ansible/wikiportal.yml
 ```
+
+<img width="1114" height="61" alt="image" src="https://github.com/user-attachments/assets/705fee5d-10ca-440b-be0f-32d2c0b153ec" />
+
 # Ожидаемо: failed=0 на всех трёх хостах (wikipc + localhost developers)
 #### ШАГ 6. Проверки
 ```bash
