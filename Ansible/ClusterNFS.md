@@ -175,3 +175,16 @@ ssh root@10.1.100.21 "cat /srv/nfs_share/test_nfs.txt"
 > Важный момент: Служба mountd по умолчанию может выбирать динамический порт при каждом запуске. Но встроенные сервисы в firewalld (которые мы и включили) автоматически отслеживают эти изменения, поэтому нам не пришлось жестко прописывать порты вручную.
 
 <img width="1114" height="715" alt="image" src="https://github.com/user-attachments/assets/5667621a-6990-453d-9d1f-ddbe9687f90b" />
+
+##### Анализ вывода firewall-cmd --list-all:
+- 10.1.100.21 (Сервер):
+
+services: ... mountd nfs rpc-bind ... — открыты порты для NFS-сервера (2049, 20048, 111).
+
+ports: 5432/tcp — открыт порт для PostgreSQL (Primary).
+
+- 10.1.100.22 (Клиент):
+
+services: ... ssh ... — нет служб NFS.
+
+ports: 5432/tcp — открыт порт для PostgreSQL (Standby).
