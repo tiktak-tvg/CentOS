@@ -1,4 +1,8 @@
-### Кластер хранения (NFS): Один узел выступает в роли NFS-сервера (раздает директорию), а второй — в роли клиента (монтирует ее). Ansible-роль может управлять как серверной частью (/etc/exports), так и клиентской (записи в /etc/fstab).
+### Кластер хранения (NFS) 
+Один узел выступает в роли NFS-сервера (раздает директорию)
+Второй — в роли клиента (монтирует ее). Ansible-роль может управлять как серверной частью (/etc/exports), так и клиентской (записи в /etc/fstab)
+Роль управляющего хоста -  10.1.100.10
+Кластер хранения (NFS) на узлах 10.1.100.21 (Server) и 10.1.100.22 (Client).
 #### Шаг 1: Настройка инвентаря и переменных
 Добавим новую группу хостов и переменные для NFS.
 ```bash
@@ -28,9 +32,11 @@ mkdir -p /etc/ansible/roles/nfs_client/tasks
 ```bash
 cat <<'EOF' > /etc/ansible/roles/nfs_server/tasks/main.yml
 ---
-- name: Установка NFS Server
+- name: Установка NFS Server и libsemanage-python (для SELinux)
   yum:
-    name: nfs-utils
+    name:
+      - nfs-utils
+      - libsemanage-python
     state: present
 
 - name: Создание директории для экспорта
@@ -73,15 +79,6 @@ cat <<'EOF' > /etc/ansible/roles/nfs_server/tasks/main.yml
   loop:
     - nfs_export_all_rw
     - nfs_export_all_ro
-EOF
-```
-```bash
-cat <<'EOF' > /etc/ansible/roles/nfs_server/handlers/main.yml
----
-- name: restart nfs-server
-  service:
-    name: nfs-server
-    state: restarted
 EOF
 ```
 (Примечание: если папки handlers нет, создайте её: mkdir -p /etc/ansible/roles/nfs_server/handlers)
