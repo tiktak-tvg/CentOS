@@ -344,28 +344,40 @@ HAProxy должен уметь проверять, жив ли тот или и
 
 Выполните на Primary (10.1.100.21):
 ```bash
-sudo -u postgres psql -c "CREATE USER haproxy_check WITH LOGIN;"
-sudo -u postgres psql -c "GRANT CONNECT ON DATABASE postgres TO haproxy_check;"
+ansible 10.1.100.21 -m shell -a "sudo -u postgres psql -c 'CREATE USER haproxy_check WITH LOGIN;'"
 ```
 Теперь разрешим этому пользователю подключаться с IP-адреса вашей машины, где будет установлен HAProxy (например, 10.1.100.10). Обратите внимание: замените 10.1.100.10 на реальный IP вашего HAProxy-хоста.
 
-Выполните на обоих серверах (Primary и Standby):
-```bash
-# Добавляем правило в pg_hba.conf
-echo "host postgres haproxy_check 10.1.100.10/32 trust" | sudo tee -a /var/lib/pgsql/14/data/pg_hba.conf
+Настраиваем pg_hba.conf на ОБОИХ серверах (Primary и Standby):
 
-# Применяем изменения
-sudo -u postgres /usr/pgsql-14/bin/pg_ctl reload -D /var/lib/pgsql/14/data
+Разрешаем подключение с IP-адреса HAProxy (10.1.100.10) для пользователя haproxy_check (для проверок) и для всех остальных пользователей, например postgres (для реального трафика). Используем trust для простоты тестового стенда (чтобы psql не спрашивал пароль).
+```bash
+# Добавляем правила в pg_hba.conf
+ansible postgres_cluster -m shell -a "echo 'host all haproxy_check 10.1.100.10/32 trust' >> /var/lib/pgsql/14/data/pg_hba.conf"
+ansible postgres_cluster -m shell -a "echo 'host all all 10.1.100.10/32 trust' >> /var/lib/pgsql/14/data/pg_hba.conf"
+
+# Перезагружаем конфигурацию и применяем изменения
+ansible postgres_cluster -m shell -a "sudo -u postgres /usr/pgsql-14/bin/pg_ctl reload -D /var/lib/pgsql/14/data"
 ```
 Мы используем trust для простоты тестового стенда. В production-среде лучше использовать md5 и задать пароль.
 
-#### Шаг 2: Конфигурация HAProxy
+#### Шаг 2: Настройка HAProxy (на 10.1.100.10)
 Установите HAProxy на выбранный хост (например, на управляющую машину manager2122 или любой свободный сервер). Если HAProxy ещё не установлен:
 ```bash
-sudo yum install -y haproxy
+yum install -y haproxy
+
+# На хосте с HAProxy откройте порты для трафика и статистики: 5432 (запись), 5433 (чтение), 8404 (статистика)
+firewall-cmd --permanent --add-port=5432/tcp
+firewall-cmd --permanent --add-port=5433/tcp
+firewall-cmd --permanent --add-port=8404/tcp
+firewall-cmd --reload
+
+# SELinux: разрешаем HAProxy ходить по сети и устанавливать сетевые соединения:
+setsebool -P haproxy_connect_any on
 ```
 Создайте конфигурационный файл /etc/haproxy/haproxy.cfg со следующим содержимым:
 ```haproxy
+cat <<'EOF' > /etc/haproxy/haproxy.cfg
 global
     log /dev/log local0
     maxconn 4096
@@ -382,16 +394,17 @@ defaults
     timeout client 60s
     timeout server 60s
 
-# Веб-интерфейс статистики
+# --- Веб-интерфейс статистики ---
 listen stats
     bind *:8404
     mode http
     stats enable
     stats uri /stats
+    stats refresh 5s
     stats auth admin:SecurePass123
 
 # --- Трафик на ЗАПИСЬ (порт 5432) ---
-# Все запросы всегда идут только на Primary
+# Всегда перенаправляет на Primary
 listen pgsql_write
     bind *:5432
     mode tcp
@@ -400,7 +413,7 @@ listen pgsql_write
     server pg-primary 10.1.100.21:5432 check inter 5s fall 3 rise 2
 
 # --- Трафик на ЧТЕНИЕ (порт 5433) ---
-# Запросы распределяются между Primary и Standby
+# Распределяет по кругу (roundrobin) между Primary и Standby
 listen pgsql_read
     bind *:5433
     mode tcp
@@ -409,53 +422,99 @@ listen pgsql_read
     option pgsql-check user haproxy_check
     server pg-primary 10.1.100.21:5432 check inter 5s fall 3 rise 2
     server pg-standby 10.1.100.22:5432 check inter 5s fall 3 rise 2
+EOF
 ```
 В конфигурации выше Primary (10.1.100.21) указан первым в списке на чтение. Если вы хотите снизить нагрузку на мастер, вы можете либо убрать его из блока pgsql_read, либо пометить как backup, чтобы он использовался только если реплика недоступна.
 
-#### Шаг 3: Настройка Firewalld и SELinux
-На хосте с HAProxy откройте порты для трафика и статистики:
-```bash
-sudo firewall-cmd --permanent --add-port=5432/tcp
-sudo firewall-cmd --permanent --add-port=5433/tcp
-sudo firewall-cmd --permanent --add-port=8404/tcp
-sudo firewall-cmd --reload
 ```
-Также на CentOS 7 с SELinux необходимо разрешить HAProxy устанавливать сетевые соединения:
-```bash
-sudo setsebool -P haproxy_connect_any on
-```
-#### Шаг 4: Запуск и проверка
+#### Шаг 3: Запуск и проверка
 Запустите HAProxy и проверьте его конфигурацию:
 ```bash
-sudo haproxy -c -f /etc/haproxy/haproxy.cfg
-sudo systemctl restart haproxy
-sudo systemctl enable haproxy
+# Проверка синтаксиса
+haproxy -c -f /etc/haproxy/haproxy.cfg
+
+# Запуск и добавление в автозагрузку
+systemctl restart haproxy
+systemctl enable haproxy
 ```
 Теперь проверим, что разделение работает. Выполните на хосте с HAProxy:
 
-##### 1. Проверка записи (порт 5432):
+##### 4. Проверка записи (порт 5432):
+Выполните эти команды на управляющей машине (10.1.100.10), где установлен HAProxy.
+
+*1. Проверка веб-интерфейса (Stats)*
+
+Откройте в браузере: http://10.1.100.10:8404/stats
+
+Логин: **admin, Пароль: SecurePass123**
+
+Убедитесь, что в блоках pgsql_write и pgsql_read все серверы горят зелёным (статус UP).
+
+<img width="1374" height="604" alt="image" src="https://github.com/user-attachments/assets/97756430-3fab-44c1-8839-fe468e4f0b39" />
+
+*2. Проверка ЗАПИСИ (порт 5432)*
 ```bash
 psql -h 127.0.0.1 -p 5432 -U postgres -d postgres -c "SELECT inet_server_addr();"
 ```
-Ожидаемый результат: 10.1.100.21 (Primary).
+Ожидаемый результат: всегда 10.1.100.21 (Primary).
 
-##### 2. Проверка чтения (порт 5433):
+Проверьте 3 раза, IP не должен меняться.
+
+*3. Проверка ЧТЕНИЯ (порт 5433)*
 ```bash
-# Выполните несколько раз, чтобы увидеть чередование
 for i in {1..6}; do psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -t -c "SELECT inet_server_addr();"; done
 ```
-Ожидаемый результат: вывод будет чередовать 10.1.100.21 и 10.1.100.22 (или только 10.1.100.22, если вы убрали Primary из блока чтения).
+Ожидаемый результат: Идеальное чередование:
+```text
+ 10.1.100.21
+ 10.1.100.22
+ 10.1.100.21
+ 10.1.100.22
+ 10.1.100.21
+ 10.1.100.22
+```
 
-##### 3. Веб-статистика:
-Откройте в браузере http://<IP_HAProxy>:8404/stats (логин: admin, пароль: SecurePass123). Вы увидите, что оба сервера в статусе UP для соответствующих бэкендов.
+<img width="1107" height="309" alt="image" src="https://github.com/user-attachments/assets/1eb69f3b-9b56-4d3a-9f01-3d5e4a9912fe" />
+
+*4. Проверка "Failover" (отказоустойчивость)*
+
+Давайте проверим, что будет, если реплика упадёт.
+```bash
+# Останавливаем PostgreSQL на Standby (10.1.100.22)
+ansible 10.1.100.22 -m service -a "name=postgresql-14 state=stopped"
+
+# Проверяем чтение (теперь все запросы должны идти на мастера)
+for i in {1..3}; do psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -t -c "SELECT inet_server_addr();"; done
+# Ожидаемо: 10.1.100.21 (три раза подряд)
+
+# Возвращаем реплику в строй
+ansible 10.1.100.22 -m service -a "name=postgresql-14 state=started"
+```
+
+<img width="1110" height="230" alt="image" src="https://github.com/user-attachments/assets/5ec03e5f-f827-43a5-921a-205feab023e6" />
+
+Поздравляю! Теперь ваш кластер баз данных умеет грамотно распределять нагрузку, а HAProxy автоматически исключает упавшие узлы из балансировки
 
 #### Итог
 Теперь ваше приложение может отправлять запросы на запись на порт 5432, а запросы на чтение — на порт 5433. HAProxy будет автоматически отслеживать доступность серверов и распределять нагрузку. 
 
 В случае падения Standby, все запросы на чтение продолжат обслуживаться Primary (если он включён в бэкенд чтения), а если упадёт Primary — запросы на запись будут недоступны до восстановления, но чтение продолжит работать через реплику.
 
+> [!TIP]
+> Если вы хотите переустановить всё заново, то сделаем полную очистку всего установленного.
 
+##### Очистка (чтобы начать с нуля)
+Выполните это на управляющей машине (10.1.100.10), чтобы удалить старые настройки.
+```bash
+# 1. Останавливаем HAProxy
+systemctl stop haproxy || true
 
+# 2. Удаляем старого пользователя из PostgreSQL (только на мастере, реплика подхватит)
+ansible 10.1.100.21 -m shell -a "sudo -u postgres psql -c 'DROP USER IF EXISTS haproxy_check;'" || true
+
+# 3. Очищаем старые правила в pg_hba.conf на обоих серверах
+ansible postgres_cluster -m shell -a "sed -i '/10.1.100.10/d' /var/lib/pgsql/14/data/pg_hba.conf"
+```
 
 
 
