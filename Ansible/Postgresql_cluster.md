@@ -268,6 +268,8 @@ ansible-playbook /etc/ansible/pg_cluster.yml
 ```
 Дождитесь PLAY RECAP с failed=0 на обоих хостах.
 
+<img width="1109" height="58" alt="image" src="https://github.com/user-attachments/assets/a31ea7c5-cbf0-4b89-93f5-891d210f60b4" />
+
 ##### Проверка 1: Статус репликации (на мастере)
 ```bash
 ssh root@10.1.100.21 "sudo -u postgres psql -c 'SELECT client_addr, state, sync_state FROM pg_stat_replication;'"
@@ -280,15 +282,14 @@ ssh root@10.1.100.22 "sudo -u postgres psql -c 'SELECT pg_is_in_recovery();'"
 ```
 Ожидаемо: t.
 
+<img width="1112" height="212" alt="image" src="https://github.com/user-attachments/assets/3fabe936-199c-4f25-8b63-6812211d3640" />
+
 ##### Проверка 3: Создаем таблицу на мастере (10.1.100.21) и создаем данные на мастере:
 ```bash
 ssh root@10.1.100.21 "sudo -u postgres psql -c \"CREATE TABLE test_repl (id int, msg text); INSERT INTO test_repl VALUES (1, 'Clean Install Success');\""
 ```
 ##### Проверка 4: Читаем данные на реплике (10.1.100.22):
 ```bash
-# Читаем данные на реплике
-ssh root@10.1.100.22 "sudo -u postgres psql -c 'SELECT * FROM test_repl;'"
-
 # Читаем данные на реплике
 ssh root@10.1.100.22 "sudo -u postgres psql -c 'SELECT * FROM test_repl;'"
 ```
@@ -299,3 +300,5 @@ ssh root@10.1.100.22 "sudo -u postgres psql -c 'SELECT * FROM test_repl;'"
   1 | Clean Install Success
 (1 row)
 ```
+
+<img width="1110" height="178" alt="image" src="https://github.com/user-attachments/assets/6e5b4f49-5700-4290-8b13-3e2dba936c21" />
