@@ -302,3 +302,26 @@ ssh root@10.1.100.22 "sudo -u postgres psql -c 'SELECT * FROM test_repl;'"
 ```
 
 <img width="1110" height="178" alt="image" src="https://github.com/user-attachments/assets/6e5b4f49-5700-4290-8b13-3e2dba936c21" />
+
+>[!TOP]
+>Если вы хотите переустановить всё заново, то сделаем полную очистку всего установленного.
+
+Удалим всё, что связано с PostgreSQL, данные и старые конфигурации Ansible.
+
+```bash
+# 1. Останавливаем PostgreSQL на обоих хостах
+ansible postgres_cluster -m service -a "name=postgresql-14 state=stopped" || true
+
+# 2. Удаляем пакеты PostgreSQL с их конфигурациями
+ansible postgres_cluster -m yum -a "name=postgresql14-server state=absent autoremove=yes"
+
+# 3. Полностью удаляем директорию с данными (чтобы initdb отработал заново)
+ansible postgres_cluster -m file -a "path=/var/lib/pgsql/14 state=absent"
+
+# 4. Удаляем старые файлы Ansible
+rm -rf /etc/ansible/roles/postgres_common
+rm -rf /etc/ansible/roles/postgres_primary
+rm -rf /etc/ansible/roles/postgres_standby
+rm -f /etc/ansible/pg_cluster.yml
+rm -f /etc/ansible/group_vars/postgres_cluster.yml
+```
