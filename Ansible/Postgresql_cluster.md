@@ -46,7 +46,7 @@ ansible postgres_cluster -m ping
 
 <img width="1112" height="316" alt="image" src="https://github.com/user-attachments/assets/dc8c639a-fe8e-4f37-82e3-319eaf520b9c" />
 
-Проверка правил firewalld (правильный синтаксис)
+Проверка правил firewalld (правильный синтаксис, уже добавленный порт 5432)
 ```bash
 ansible postgres_cluster -m shell -a "firewall-cmd --list-all"
 ```
