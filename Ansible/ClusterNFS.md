@@ -136,6 +136,8 @@ ansible-playbook /etc/ansible/nfs_cluster.yml
 ```
 Ожидается: PLAY RECAP с failed=0 на обоих хостах.
 
+<img width="1108" height="63" alt="image" src="https://github.com/user-attachments/assets/4e8f7795-4078-491a-9bed-8eb923046fb0" />
+
 ##### Проверка работы NFS:
 Проверим, что шара смонтирована на клиенте:
 ```bash
@@ -159,6 +161,9 @@ ssh root@10.1.100.22 "echo 'Hello NFS from Client' > /mnt/nfs_share/test_nfs.txt
 ssh root@10.1.100.21 "cat /srv/nfs_share/test_nfs.txt"
 Ожидаемо: Hello NFS from Client.
 ```
+
+<img width="1109" height="169" alt="image" src="https://github.com/user-attachments/assets/a9436c1f-5774-4b23-bb77-cb187369dc99" />
+
 ##### Какие порты открываются и зачем:
 **nfs (порт 2049/tcp)** — это основной порт, по которому передаются сами файлы и данные.
 
@@ -168,3 +173,5 @@ ssh root@10.1.100.21 "cat /srv/nfs_share/test_nfs.txt"
 
 > [!NOTE]
 > Важный момент: Служба mountd по умолчанию может выбирать динамический порт при каждом запуске. Но встроенные сервисы в firewalld (которые мы и включили) автоматически отслеживают эти изменения, поэтому нам не пришлось жестко прописывать порты вручную.
+
+<img width="1114" height="715" alt="image" src="https://github.com/user-attachments/assets/5667621a-6990-453d-9d1f-ddbe9687f90b" />
