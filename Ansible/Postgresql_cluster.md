@@ -303,8 +303,8 @@ ssh root@10.1.100.22 "sudo -u postgres psql -c 'SELECT * FROM test_repl;'"
 
 <img width="1110" height="178" alt="image" src="https://github.com/user-attachments/assets/6e5b4f49-5700-4290-8b13-3e2dba936c21" />
 
->[!TOP]
->Если вы хотите переустановить всё заново, то сделаем полную очистку всего установленного.
+> [!TIP]
+> Если вы хотите переустановить всё заново, то сделаем полную очистку всего установленного.
 
 Удалим всё, что связано с PostgreSQL, данные и старые конфигурации Ansible.
 
