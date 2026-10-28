@@ -482,8 +482,8 @@ for i in {1..6}; do psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -t -c "SEL
 ```bash
 # Останавливаем PostgreSQL на Standby (10.1.100.22)
 ansible 10.1.100.22 -m service -a "name=postgresql-14 state=stopped"
-
-# Проверяем чтение (теперь все запросы должны идти на мастера)
+# Подождите 15 секунд или Sleep
+# Проверяем чтение (теперь все запросы должны идти на мастера) 
 for i in {1..3}; do psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -t -c "SELECT inet_server_addr();"; done
 # Ожидаемо: 10.1.100.21 (три раза подряд)
 
