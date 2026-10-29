@@ -301,9 +301,14 @@ ls -lh kmod-drbd90-*.rpm drbd90-utils-*.rpm
 file *.rpm
 ```
 Должно быть:<br>
-- kmod-drbd90-9.1.21...rpm — ~316K, RPM v3.0
-- drbd90-utils-9.27.0...rpm — ~925K, RPM v3.0
-
+```txt
+[root@centpc22 ~]# ls -lh kmod-drbd90-*.rpm drbd90-utils-*.rpm
+-rw-r--r--. 1 root root 925K окт 29 15:26 drbd90-utils-9.27.0-1.el7.elrepo.x86_64.rpm
+-rw-r--r--. 1 root root 316K окт 29 15:26 kmod-drbd90-9.1.21-1.el7_9.elrepo.x86_64.rpm
+[root@centpc22 ~]# file *.rpm
+drbd90-utils-9.27.0-1.el7.elrepo.x86_64.rpm:  RPM v3.0 bin i386/x86_64 drbd90-utils-9.27.0-1.el7.elrepo
+kmod-drbd90-9.1.21-1.el7_9.elrepo.x86_64.rpm: RPM v3.0 bin i386/x86_64 kmod-drbd90-9.1.21-1.el7_9.elrepo
+```
 Если размер 146/196/557 байт — ссылки сломались, найдите альтернативу на pkgs.org или https://mirrors.coreix.net/elrepo/elrepo/el7/x86_64/RPMS/.
 
 ##### 3.2. Скопировать пакеты на узлы
