@@ -177,18 +177,15 @@ ssh root@10.1.100.21 "cat /srv/nfs_share/test_nfs.txt"
 <img width="1114" height="715" alt="image" src="https://github.com/user-attachments/assets/5667621a-6990-453d-9d1f-ddbe9687f90b" />
 
 ##### Анализ вывода firewall-cmd --list-all:
+```txt
 - 10.1.100.21 (Сервер):
-
 services: ... mountd nfs rpc-bind ... — открыты порты для NFS-сервера (2049, 20048, 111).
-
 ports: 5432/tcp — открыт порт для PostgreSQL (Primary).
 
 - 10.1.100.22 (Клиент):
-
 services: ... ssh ... — нет служб NFS.
-
 ports: 5432/tcp — открыт порт для PostgreSQL (Standby).
-
+```
 > [!TIP]
 > Когда клиент .22 стучится на сервер .21, фаервол на .22 запоминает это соединение. Когда сервер отвечает, фаервол понимает, что это ответ на запрос клиента, и автоматически пропускает его обратно. Открывать входящие порты на клиенте не нужно.
 
@@ -213,18 +210,17 @@ ports: 5432/tcp — открыт порт для PostgreSQL (Standby).
 ```
 Все команды ниже выполняются на управляющем хосте manager2122 (10.1.100.10) под root.
 #### Архитектура решения
-DRBD: Обеспечивает синхронную репликацию данных между дисками узлов 10.1.100.21 (Primary) и 10.1.100.22 (Secondary) в режиме реального времени.
+**DRBD**: Обеспечивает синхронную репликацию данных между дисками узлов 10.1.100.21 (Primary) и 10.1.100.22 (Secondary) в режиме реального времени.
 
-NFS: Раздает файловую систему, размещенную на DRBD-устройстве.
+**NFS**: Раздает файловую систему, размещенную на DRBD-устройстве.
 
-Keepalived: Управляет виртуальным IP-адресом (10.1.100.23). Этот VIP будет привязан к узлу, который в данный момент является Primary для DRBD. При отказе узла VIP автоматически переместится на второй сервер.
+**Keepalived**: Управляет виртуальным IP-адресом (10.1.100.23). Этот VIP будет привязан к узлу, который в данный момент является Primary для DRBD. При отказе узла VIP автоматически переместится на второй сервер.
 
-ЭТАП 0. Предварительные требования на узлах
+#### ЭТАП 0. Предварительные требования на узлах
 На виртуальных машинах .21 и .22 должен быть второй диск одинакового размера (например, 20 ГБ), видимый как /dev/sdb.
 
 Если диск ещё не добавлен — добавьте его через гипервизор и пересканируйте SCSI-шину:
-
-bash
+```bash
 cat <<'EOF' > /root/rescan.sh
 #!/bin/bash
 for host in /sys/class/scsi_host/host*/scan; do
@@ -234,16 +230,18 @@ lsblk
 EOF
 chmod +x /root/rescan.sh
 /root/rescan.sh
+```
 Проверка (на обоих узлах должен быть /dev/sdb одинакового размера):
-
-bash
+```bash
 ansible nfs_cluster -i /etc/ansible/hosts -m shell -a "lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT"
-ЭТАП 1. Подготовка управляющего хоста
-1.1. Установить Ansible и NFS-клиент (для тестов)
-bash
+```
+#### ЭТАП 1. Подготовка управляющего хоста
+##### 1.1. Установить Ansible и NFS-клиент (для тестов)
+```bash
 yum install -y epel-release ansible nfs-utils
-1.2. Создать inventory
-bash
+```
+##### 1.2. Создать inventory
+```bash
 cat <<'EOF' > /etc/ansible/hosts
 [postgres_cluster]
 10.1.100.21 ansible_user=root pg_role=primary
@@ -256,56 +254,58 @@ cat <<'EOF' > /etc/ansible/hosts
 [nfs_cluster:vars]
 ansible_python_interpreter=/usr/bin/python
 EOF
-1.3. Настроить SSH-доступ по ключу (без пароля)
-bash
+```
+##### 1.3. Настроить SSH-доступ по ключу (без пароля)
+```bash
 ssh-keygen -t rsa -N '' -f /root/.ssh/id_rsa <<< y >/dev/null 2>&1 || true
 ssh-copy-id -o StrictHostKeyChecking=no root@10.1.100.21
 ssh-copy-id -o StrictHostKeyChecking=no root@10.1.100.22
-1.4. Проверить связность
-bash
+```
+##### 1.4. Проверить связность
+```bash
 ansible nfs_cluster -i /etc/ansible/hosts -m ping
-Ожидаемо: оба узла SUCCESS → pong.
+```
+- Ожидаемо: оба узла SUCCESS → pong.
 
-ЭТАП 2. Починка репозиториев CentOS 7 (EOL)
+#### ЭТАП 2. Починка репозиториев CentOS 7 (EOL)
 CentOS 7 снят с поддержки, зеркала mirror.centos.org отдают 403. Заменяем их на архив mirror.nsc.liu.se.
-
-bash
+```bash
 ansible nfs_cluster -i /etc/ansible/hosts -m shell -a "\
 sed -i 's|mirror.centos.org|mirror.nsc.liu.se/centos-store|g' /etc/yum.repos.d/CentOS-*.repo && \
 sed -i 's|vault.centos.org|mirror.nsc.liu.se/centos-store|g' /etc/yum.repos.d/CentOS-*.repo && \
 sed -i 's|^#.*baseurl=http|baseurl=http|g' /etc/yum.repos.d/CentOS-*.repo && \
 sed -i 's|^mirrorlist=http|#mirrorlist=http|g' /etc/yum.repos.d/CentOS-*.repo && \
 yum clean all && yum makecache"
+```
 Проверка:
-
-bash
+```bash
 ansible nfs_cluster -i /etc/ansible/hosts -m shell -a "yum repolist | tail -3"
-Ожидаемо: repolist: 33000+.
+```
+- Ожидаемо: repolist: 33000+.
 
-ЭТАП 3. Установка DRBD 9 (проверенные RPM-пакеты)
+#### ЭТАП 3. Установка DRBD 9 (проверенные RPM-пакеты)
 Пакеты kmod-drbd90 и drbd90-utils в стандартном ELRepo для EL7 уже недоступны, скачаем проверенные версии с зеркал fnal.gov и coreix.net.
 
-3.1. Скачать RPM на manager
-bash
+##### 3.1. Скачать RPM на manager
+```bash
 cd /root
 rm -f kmod-drbd90-*.rpm drbd90-utils-*.rpm
 curl -LO https://linux-mirrors.fnal.gov/linux/elrepo/testing/el7/x86_64/RPMS/kmod-drbd90-9.1.21-1.el7_9.elrepo.x86_64.rpm
 curl -LO http://mirrors.coreix.net/elrepo/elrepo/el7/x86_64/RPMS/drbd90-utils-9.27.0-1.el7.elrepo.x86_64.rpm
+```
 Проверка (ОБЯЗАТЕЛЬНО!):
-
-bash
+```bash
 ls -lh kmod-drbd90-*.rpm drbd90-utils-*.rpm
 file *.rpm
-Должно быть:
-
-kmod-drbd90-9.1.21...rpm — ~316K, RPM v3.0
-
-drbd90-utils-9.27.0...rpm — ~925K, RPM v3.0
+```
+Должно быть:<br>
+- kmod-drbd90-9.1.21...rpm — ~316K, RPM v3.0
+- drbd90-utils-9.27.0...rpm — ~925K, RPM v3.0
 
 Если размер снова 146/196/557 байт — ссылки снова сломались, найдите альтернативу на pkgs.org или https://mirrors.coreix.net/elrepo/elrepo/el7/x86_64/RPMS/.
 
-3.2. Скопировать пакеты на узлы
-bash
+##### 3.2. Скопировать пакеты на узлы
+```bash
 ansible nfs_cluster -i /etc/ansible/hosts -m copy \
   -a "src={{ item }} dest=/tmp/{{ item }}" \
   -e "item=kmod-drbd90-9.1.21-1.el7_9.elrepo.x86_64.rpm"
@@ -313,38 +313,45 @@ ansible nfs_cluster -i /etc/ansible/hosts -m copy \
 ansible nfs_cluster -i /etc/ansible/hosts -m copy \
   -a "src={{ item }} dest=/tmp/{{ item }}" \
   -e "item=drbd90-utils-9.27.0-1.el7.elrepo.x86_64.rpm"
-3.3. Удалить старый drbd-utils (если был установлен ранее)
-bash
+  ```
+##### 3.3. Удалить старый drbd-utils (если был установлен ранее)
+```bash
 ansible nfs_cluster -i /etc/ansible/hosts -m yum -a "name=drbd-utils state=absent"
-3.4. Установить пакеты
-bash
+```
+##### 3.4. Установить пакеты
+```bash
 ansible nfs_cluster -i /etc/ansible/hosts -m yum \
   -a "name=/tmp/kmod-drbd90-9.1.21-1.el7_9.elrepo.x86_64.rpm,/tmp/drbd90-utils-9.27.0-1.el7.elrepo.x86_64.rpm state=present"
-3.5. Загрузить модуль ядра
-bash
+```
+##### 3.5. Загрузить модуль ядра
+```bash
 ansible nfs_cluster -i /etc/ansible/hosts -m shell -a "modprobe drbd && lsmod | grep drbd"
-Ожидаемо: строка вида drbd 655700 0.
+```
+- Ожидаемо: строка вида drbd 655700 0.
 
-ЭТАП 4. SELinux
+#### ЭТАП 4. SELinux
 Для лабораторной переводим SELinux в Permissive (в продакшне нужны semanage fcontext и restorecon, здесь — упрощённо):
 
-bash
+```bash
 ansible nfs_cluster -i /etc/ansible/hosts -m shell -a "setenforce 0 && sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config && getenforce"
-Ожидаемо: Permissive на обоих.
+```
+- Ожидаемо: Permissive на обоих.
 
 Также убедимся, что на manager есть mount.nfs (иначе клиент не смонтирует шару — мы уже поставили nfs-utils в Этапе 1.1, проверим):
 
-bash
+```bash
 which mount.nfs
-Ожидаемо: /usr/sbin/mount.nfs.
+```
+- Ожидаемо: /usr/sbin/mount.nfs.
 
-ЭТАП 5. Создание Ansible-роли nfs_ha
-5.1. Структура каталогов
-bash
+#### ЭТАП 5. Создание Ansible-роли nfs_ha
+##### 5.1. Структура каталогов
+```bash
 mkdir -p /etc/ansible/roles/nfs_ha/tasks
 mkdir -p /etc/ansible/group_vars
-5.2. group_vars/nfs_cluster.yml
-bash
+```
+##### 5.2. group_vars/nfs_cluster.yml
+```bash
 cat <<'EOF' > /etc/ansible/group_vars/nfs_cluster.yml
 ---
 # Сетевые настройки
@@ -360,8 +367,9 @@ shared_secret: "my_super_secret_key_2026"
 # Подсеть экспорта
 nfs_network: "10.1.100.0/24"
 EOF
-5.3. tasks/main.yml
-bash
+```
+##### 5.3. tasks/main.yml
+```bash
 cat <<'EOF' > /etc/ansible/roles/nfs_ha/tasks/main.yml
 ---
 - import_tasks: prerequisites.yml
@@ -369,8 +377,9 @@ cat <<'EOF' > /etc/ansible/roles/nfs_ha/tasks/main.yml
 - import_tasks: nfs.yml
 - import_tasks: keepalived.yml
 EOF
-5.4. tasks/prerequisites.yml
-bash
+```
+##### 5.4. tasks/prerequisites.yml
+```bash
 cat <<'EOF' > /etc/ansible/roles/nfs_ha/tasks/prerequisites.yml
 ---
 - name: Установка пакетов (shell обходит баг модуля yum в CentOS 7)
@@ -413,16 +422,13 @@ cat <<'EOF' > /etc/ansible/roles/nfs_ha/tasks/prerequisites.yml
       vers3=y
       vers4=y
 EOF
-5.5. tasks/drbd.yml
+```
+##### 5.5. tasks/drbd.yml
 Ключевые моменты:
-
-В секциях on используются hostname (centpc21/centpc22), а не IP — иначе DRBD не сможет сопоставить узел.
-
-Перед create-md всегда делается drbdadm down с failed_when: false — иначе на повторном запуске будет Device is configured.
-
-create-md идёт с --force и yes | — чтобы не зависать на интерактивных вопросах.
-
-bash
+- В секциях on используются hostname (centpc21/centpc22), а не IP — иначе DRBD не сможет сопоставить узел.
+- Перед create-md всегда делается drbdadm down с failed_when: false — иначе на повторном запуске будет Device is configured.
+- create-md идёт с --force и yes | — чтобы не зависать на интерактивных вопросах.
+```bash
 cat <<'EOF' > /etc/ansible/roles/nfs_ha/tasks/drbd.yml
 ---
 - name: Создание конфигурации ресурса DRBD (/etc/drbd.d/r0.res)
@@ -489,8 +495,9 @@ cat <<'EOF' > /etc/ansible/roles/nfs_ha/tasks/drbd.yml
   when: nfs_role == 'server'
   changed_when: false
 EOF
-5.6. tasks/nfs.yml
-bash
+```
+##### 5.6. tasks/nfs.yml
+```bash
 cat <<'EOF' > /etc/ansible/roles/nfs_ha/tasks/nfs.yml
 ---
 - name: Создание точки монтирования
@@ -512,18 +519,15 @@ cat <<'EOF' > /etc/ansible/roles/nfs_ha/tasks/nfs.yml
     state: stopped
   ignore_errors: yes
 EOF
-5.7. tasks/keepalived.yml
+```
+##### 5.7. tasks/keepalived.yml
 Ключевые моменты:
+- global_defs { enable_script_security; script_user root } — без этого Keepalived не запускает скрипты (в логах будет SECURITY VIOLATION).
+- Скрипт nfs_ha.sh ждёт, пока peer перейдёт в UpToDate, прежде чем промоутить локальный DRBD.
+- notify_stop и notify_fault вызывают nfs_ha.sh backup — это позволяет корректно демоутить DRBD при systemctl stop keepalived.
+- state: restarted (не started) — чтобы конфиг применялся при каждом прогоне.
 
-global_defs { enable_script_security; script_user root } — без этого Keepalived не запускает скрипты (в логах будет SECURITY VIOLATION).
-
-Скрипт nfs_ha.sh ждёт, пока peer перейдёт в UpToDate, прежде чем промоутить локальный DRBD.
-
-notify_stop и notify_fault вызывают nfs_ha.sh backup — это позволяет корректно демоутить DRBD при systemctl stop keepalived.
-
-state: restarted (не started) — чтобы конфиг применялся при каждом прогоне.
-
-bash
+```bash
 cat <<'EOF' > /etc/ansible/roles/nfs_ha/tasks/keepalived.yml
 ---
 - name: Скрипт переключения (/usr/local/bin/nfs_ha.sh)
@@ -599,8 +603,9 @@ cat <<'EOF' > /etc/ansible/roles/nfs_ha/tasks/keepalived.yml
     state: restarted
     enabled: yes
 EOF
-ЭТАП 6. Основной плейбук
-bash
+```
+#### ЭТАП 6. Основной плейбук
+```bash
 cat <<'EOF' > /etc/ansible/nfs_cluster.yml
 ---
 - name: Развертывание отказоустойчивого NFS кластера (DRBD + Keepalived)
@@ -609,33 +614,36 @@ cat <<'EOF' > /etc/ansible/nfs_cluster.yml
   roles:
     - nfs_ha
 EOF
-ЭТАП 7. Запуск и проверка
-7.1. Проверить синтаксис и запустить
-bash
+```
+#### ЭТАП 7. Запуск и проверка
+##### 7.1. Проверить синтаксис и запустить
+```bash
 ansible-playbook -i /etc/ansible/hosts /etc/ansible/nfs_cluster.yml --syntax-check
 ansible-playbook -i /etc/ansible/hosts /etc/ansible/nfs_cluster.yml
-Должно быть failed=0 на обоих узлах.
+```
+- Должно быть failed=0 на обоих узлах.
 
-7.2. Дождаться окончания синхронизации DRBD
+##### 7.2. Дождаться окончания синхронизации DRBD
 Синхронизация 20 ГБ по LAN обычно занимает 1–3 минуты. Проверяйте до появления replication:Established и UpToDate с обеих сторон:
-
-bash
+```bash
 ansible nfs_cluster -i /etc/ansible/hosts -m shell -a "drbdadm status r0"
-Ожидаемый финальный вывод:
-
-text
+```
+- Ожидаемый финальный вывод:
+```text
 10.1.100.21: r0 role:Primary,   disk:UpToDate,  centpc22 role:Secondary peer-disk:UpToDate
 10.1.100.22: r0 role:Secondary, disk:UpToDate,  centpc21 role:Primary   peer-disk:UpToDate
-⚠️ Пока идёт синк (SyncSource/SyncTarget), НЕ перезапускайте Keepalived — это прервёт синхронизацию.
+```
+> [!WARNING]
+> Пока идёт синк (SyncSource/SyncTarget), НЕ перезапускайте Keepalived — это прервёт синхронизацию.
 
-7.3. Перезапустить Keepalived на .21 после синка
+##### 7.3. Перезапустить Keepalived на .21 после синка
 Плейбук уже перезапускал Keepalived, но если к моменту его старта peer ещё был Inconsistent, notify_master не смог промоутить DRBD. После окончания синка:
-
-bash
+```bash
 ansible 10.1.100.21 -i /etc/ansible/hosts -m systemd -a "name=keepalived state=restarted"
 sleep 8
-7.4. Финальная проверка состояния
-bash
+```
+##### 7.4. Финальная проверка состояния
+```bash
 # VIP на .21
 ansible nfs_cluster -i /etc/ansible/hosts -m shell -a "ip a show ens33 | grep 10.1.100.23"
 
@@ -650,6 +658,7 @@ ansible 10.1.100.22 -i /etc/ansible/hosts -m shell -a "systemctl is-active nfs-s
 
 # Логи keepalived: нет SECURITY VIOLATION, скрипт запускается
 ansible 10.1.100.21 -i /etc/ansible/hosts -m shell -a "journalctl -u keepalived -n 30 --no-pager | grep -iE 'script|notify|security|violation'"
+```
 Ожидаемо:
 
 VIP 10.1.100.23 на .21
@@ -662,8 +671,8 @@ NFS на .22: inactive
 
 В логах keepalived: Opening script file /usr/local/bin/nfs_ha.sh и отсутствие SECURITY VIOLATION
 
-7.5. Тест с клиента (manager)
-bash
+##### 7.5. Тест с клиента (manager)
+```bash
 umount /mnt/nfs_test 2>/dev/null || true
 rm -rf /mnt/nfs_test
 mkdir -p /mnt/nfs_test
@@ -672,10 +681,12 @@ mount -t nfs 10.1.100.23:/srv/nfs_share /mnt/nfs_test
 mount | grep nfs_test        # должно явно показать 10.1.100.23:/srv/nfs_share
 echo "Hello HA NFS $(date)" > /mnt/nfs_test/test.txt
 cat /mnt/nfs_test/test.txt
-⚠️ Ключевая проверка — mount | grep nfs_test. Если вывод пуст, mount не сработал (проверьте nfs-utils на manager), и cat прочитает локальный файл, а не с NFS.
+```
+> [!WARNING]
+> Ключевая проверка — mount | grep nfs_test. Если вывод пуст, mount не сработал (проверьте nfs-utils на manager), и cat прочитает локальный файл, а не с NFS.
 
-ЭТАП 8. Тест failover
-bash
+#### ЭТАП 8. Тест failover
+```bash
 # 1. Размонтировать на клиенте (чтобы смонтировать заново после переезда)
 umount /mnt/nfs_test
 
@@ -707,7 +718,7 @@ sleep 5
 # Проверка: VIP снова на .21, DRBD Primary на .21
 ansible nfs_cluster -i /etc/ansible/hosts -m shell -a "ip a show ens33 | grep 10.1.100.23"
 ansible nfs_cluster -i /etc/ansible/hosts -m shell -a "drbdadm status r0"
-
+```
 
 
 
