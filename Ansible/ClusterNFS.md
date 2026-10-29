@@ -290,8 +290,10 @@ ansible nfs_cluster -i /etc/ansible/hosts -m shell -a "yum repolist | tail -3"
 ```bash
 cd /root
 rm -f kmod-drbd90-*.rpm drbd90-utils-*.rpm
-curl -LO https://linux-mirrors.fnal.gov/linux/elrepo/testing/el7/x86_64/RPMS/kmod-drbd90-9.1.21-1.el7_9.elrepo.x86_64.rpm
-curl -LO http://mirrors.coreix.net/elrepo/elrepo/el7/x86_64/RPMS/drbd90-utils-9.27.0-1.el7.elrepo.x86_64.rpm
+# Модуль ядра
+curl -LO https://cdimage.debian.org/mirror/elrepo.org/archive/elrepo/el7/x86_64/RPMS/kmod-drbd90-9.1.21-1.el7_9.elrepo.x86_64.rpm
+# Утилиты
+curl -LO https://cdimage.debian.org/mirror/elrepo.org/archive/elrepo/el7/x86_64/RPMS/drbd90-utils-9.27.0-1.el7.elrepo.x86_64.rpm
 ```
 Проверка (ОБЯЗАТЕЛЬНО!):
 ```bash
@@ -302,7 +304,7 @@ file *.rpm
 - kmod-drbd90-9.1.21...rpm — ~316K, RPM v3.0
 - drbd90-utils-9.27.0...rpm — ~925K, RPM v3.0
 
-Если размер снова 146/196/557 байт — ссылки снова сломались, найдите альтернативу на pkgs.org или https://mirrors.coreix.net/elrepo/elrepo/el7/x86_64/RPMS/.
+Если размер 146/196/557 байт — ссылки сломались, найдите альтернативу на pkgs.org или https://mirrors.coreix.net/elrepo/elrepo/el7/x86_64/RPMS/.
 
 ##### 3.2. Скопировать пакеты на узлы
 ```bash
