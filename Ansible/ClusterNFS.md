@@ -309,7 +309,7 @@ file *.rpm
 drbd90-utils-9.27.0-1.el7.elrepo.x86_64.rpm:  RPM v3.0 bin i386/x86_64 drbd90-utils-9.27.0-1.el7.elrepo
 kmod-drbd90-9.1.21-1.el7_9.elrepo.x86_64.rpm: RPM v3.0 bin i386/x86_64 kmod-drbd90-9.1.21-1.el7_9.elrepo
 ```
-Если размер 146/196/557 байт — ссылки сломались, найдите альтернативу на pkgs.org или https://mirrors.coreix.net/elrepo/elrepo/el7/x86_64/RPMS/.
+Если размер 146/196/557 байт — ссылки сломались, найдите альтернативу на pkgs.org или https://mirrors.coreix.net/elrepo/archive/elrepo/el7/x86_64/RPMS/.
 
 ##### 3.2. Скопировать пакеты на узлы
 ```bash
