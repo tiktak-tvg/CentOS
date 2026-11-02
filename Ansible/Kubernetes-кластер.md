@@ -1,5 +1,6 @@
 ### Пошаговое руководство по развёртыванию лёгкого Kubernetes-кластера (K3s) на трёх и более машинах с помощью официальной Ansible-коллекции k3s-io/k3s-ansible. Это production-подход: control-plane в HA-режиме (3 сервера с встроенным etcd), воркеры-агенты, автоматическая подготовка узлов и проверка отказоустойчивости.
 На всех хостах: 
+```bash
 cat /etc/os-release
 NAME="CentOS Linux"
 VERSION="7 (Core)"
@@ -21,12 +22,13 @@ uname -r
 3.10.0-1160.119.1.el7.x86_64
 cat /etc/centos-release
 CentOS Linux release 7.9.2009 (Core)
-
-
+```
 Все команды выполняются на управляющем хосте hostname:managerK3s (ip:10.1.100.10) под root.
+
 На нём установлены Ansible, nginx, firewalld
 
 Хосты:
+```bash
 10.1.100.28
 [root@managerk3s ~]# ssh root@10.1.100.24 'hostname && hostname -I'
 k3s-server-24
@@ -57,7 +59,7 @@ k3s-agent-28
 3.10.0-1160.119.1.el7.x86_64
 [root@managerk3s ~]# ssh root@10.1.100.27 'uname -r'
 3.10.0-1160.119.1.el7.x86_64
-
+```
 Схема кластера (пример)
 ```text
         ┌─────────────────────────────────────┐
@@ -83,6 +85,335 @@ k3s-agent-28
 
 Если третьего сервера нет, можно развернуть минимальный кластер: 1 server + 2 agent (без HA control-plane). В примере ниже показан HA-вариант (3 сервера).
 
-### Предустановка
-Установка Ansible 2.15.2 и netaddr.
+### Шаг 0: Предустановка Ansible 2.15.2 + netaddr + ansible.utils
+Этот шаг выполняется только на управляющем хосте managerK3s (10.1.100.10) от root. Узлы кластера на этом этапе не трогаем.
 
+#### 0.1. Учесть старый системный Ansible
+На CentOS 7 через yum install ansible ставится Ansible 2.9.27 на Python 2.7, несовместимый с коллекцией k3s-ansible. Он остаётся в /usr/bin/ansible и /usr/lib/python2.7/site-packages/ansible. Удалять его не нужно — достаточно работать в активированном venv, где /root/ansible-venv/bin/ansible переопределяет системный.
+
+Проверьте, что старый Ansible есть (это нормально):
+```bash
+which -a ansible
+# /usr/bin/ansible — системный 2.9.27
+```
+Никогда не запускайте ansible / ansible-playbook вне активированного venv. Признак корректной работы — приглашение с префиксом (ansible-venv).
+
+#### 0.2. Сборка Python 3.9.18 из исходников
+ansible-core 2.15.2 требует Python ≥ 3.9, которого нет в стандартных репозиториях CentOS 7. Собираем в изолированный префикс /opt/python3.9, не затрагивая системный Python 2.7.
+```bash
+# 1. Зависимости для сборки
+yum groupinstall -y "Development Tools"
+yum install -y openssl-devel bzip2-devel libffi-devel zlib-devel wget
+
+# 2. Скачивание и распаковка
+cd /usr/src
+wget https://www.python.org/ftp/python/3.9.18/Python-3.9.18.tgz
+tar xzf Python-3.9.18.tgz
+cd Python-3.9.18
+
+# 3. Конфигурация и сборка (занимает 10–15 минут)
+./configure --enable-optimizations --prefix=/opt/python3.9
+make -j $(nproc)
+make altinstall
+```
+#### Проверка:
+```bash
+ls /opt/python3.9/bin/
+# Ожидается: python3.9, pip3.9 и другие
+/opt/python3.9/bin/python3.9 --version
+# Ожидается: Python 3.9.18
+```
+> [!Warning]
+> Важно: используется именно make altinstall, а не make install — чтобы не перезаписать /usr/bin/python и не сломать системные yum/firewalld, которые завязаны на Python 2.7.
+
+#### 0.3. Создание виртуального окружения
+```bash
+# Убедитесь, что вы НЕ в активированном venv
+# (приглашение без "(ansible-venv)"). Если он активен — deactivate.
+
+/opt/python3.9/bin/python3.9 -m venv ~/ansible-venv
+source ~/ansible-venv/bin/activate
+```
+После активации приглашение должно измениться:
+```ext
+(ansible-venv) [root@managerK3s ~]#
+```
+Проверка, что venv использует Python 3.9:
+```bash
+python --version
+# Ожидается: Python 3.9.18
+```
+Типичная ошибка из прошлого: если python --version показывает 3.8.13 — значит venv был создан не на /opt/python3.9/bin/python3.9, а на другом Python. В этом случае удалите ~/ansible-venv и создайте заново из точного пути.
+
+#### 0.4. Установка ansible-core 2.15.2 + netaddr
+```bash
+# Обновление pip
+pip install --upgrade pip
+
+# Ключевые пакеты
+pip install ansible-core==2.15.2 netaddr
+```
+Почему ansible-core, а не ansible? ansible-core — это «движок» Ansible (CLI, модули, плагины). Пакет ansible — это мета-пакет, включающий ansible-core + огромный набор коллекций, которые нам не нужны (и которые могут конфликтовать). Официальный способ запускать k3s-ansible — через ansible-core, а нужные коллекции ставим отдельно на Шаге 5.
+
+#### Проверка:
+```bash
+pip list | grep -E 'ansible-core|netaddr'
+# Ожидается примерно:
+#   ansible-core   2.15.2
+#   netaddr        1.3.0
+```
+Зачем netaddr? Фильтр ansible.utils.ipwrap (используется в k3s-ansible для обработки IPv6-адресов) написан на Python и требует библиотеку netaddr. Без неё при запуске playbook'а вы получите Could not load "ansible.utils.ipwrap" или Unrecognized type AnsibleUndefined. Это была ваша ошибка ранее.
+#### 0.5. Проверка версии Ansible
+Самая важная проверка на этом этапе — что ansible в PATH берётся из venv и что версия корректная:
+```bash
+which ansible
+# Ожидается: /root/ansible-venv/bin/ansible
+#          (НЕ /usr/bin/ansible!)
+
+ansible --version
+```
+##### Ожидаемый вывод:
+```text
+ansible [core 2.15.2]
+  config file = /etc/ansible/ansible.cfg
+  configured module search path = [...]
+  ansible python module location = /root/ansible-venv/lib/python3.9/site-packages/ansible
+  executable location = /root/ansible-venv/bin/ansible
+  python version = 3.9.18 (main, ...) [GCC 4.8.5 ...] (/root/ansible-venv/bin/python3.9)
+  jinja version = 3.1.6
+  libyaml = True
+```
+##### Признаки корректной установки:
+
+**ansible [core 2.15.2]** — версия правильная
+
+**executable location: /root/ansible-venv/bin/ansible** — берётся из venv
+
+**python version = 3.9.18** — Python правильный
+
+**ansible python module location** — внутри venv
+
+Если в выводе фигурирует /usr/bin/ansible или python version = 2.7.5 — venv не активирован или создан не на том Python.
+
+#### 0.6. Установка обязательных Ansible-коллекций
+Помимо k3s-ansible (Шаг 5) нужны три служебные коллекции:
+
+bash
+# 1. ansible.utils — содержит плагин ipwrap (требуется k3s-ansible)
+ansible-galaxy collection install ansible.utils --force
+
+# 2. ansible.posix — фиксируем версию 1.5.4, совместимую с ansible-core 2.15
+ansible-galaxy collection install 'ansible.posix:==1.5.4' --force
+
+# 3. community.general — фиксируем 11.4.5, последнюю версию с поддержкой Python 2.7 на узлах
+ansible-galaxy collection install 'community.general:==11.4.5' --force
+Почему фиксируем версии community.general и ansible.posix?
+
+community.general 12.x использует f-строки (Python ≥ 3.6) и падает с SyntaxError на узлах CentOS 7 с системным Python 2.7 — та самая ошибка modprobe.py, line 108. Версия 11.4.5 — последняя с поддержкой Python 2.7.
+
+ansible.posix 2.x выдаёт warning Collection ansible.posix does not support Ansible version 2.15.2. Версия 1.5.4 работает с 2.15 без предупреждений.
+
+Проверка установленных коллекций:
+```bash
+ansible-galaxy collection list | grep -E 'ansible.utils|ansible.posix|community.general'
+```
+Ожидается:
+```text
+ansible.posix            1.5.4
+ansible.utils            6.1.1
+community.general        11.4.5
+```
+#### 0.7. Проверка netaddr через Python venv
+```bash
+python -c "import netaddr; print('netaddr OK:', netaddr.__version__)"
+# Ожидается: netaddr OK: 1.3.0
+
+python -c "import yaml; print('yaml OK:', yaml.__version__)"
+# Ожидается: yaml OK: 6.0.3
+```
+Типичная ошибка из прошлого: python -c "import netaddr" показывал ModuleNotFoundError, потому что python в PATH был системный /usr/bin/python (2.7), а не /root/ansible-venv/bin/python. Признак — вывод which python не указывает на venv.
+
+Финальная проверка which:
+```bash
+which python pip ansible ansible-playbook ansible-galaxy
+```
+Все пять путей должны начинаться с /root/ansible-venv/bin/:
+
+```text
+/root/ansible-venv/bin/python
+/root/ansible-venv/bin/pip
+/root/ansible-venv/bin/ansible
+/root/ansible-venv/bin/ansible-playbook
+/root/ansible-venv/bin/ansible-galaxy
+```
+Если хоть один указывает на /usr/bin/ — venv не активирован, выполните source ~/ansible-venv/bin/activate заново.
+
+#### 0.8. Фиксация окружения (рекомендуется)
+Сохраните список пакетов для воспроизводимости:
+```bash
+mkdir -p /root/k3s-ha
+pip freeze > /root/k3s-ha/requirements-pip.txt
+ansible-galaxy collection list > /root/k3s-ha/requirements-collections.txt
+```
+При пересоздании venv в будущем:
+```bash
+pip install -r /root/k3s-ha/requirements-pip.txt
+ansible-galaxy collection install -r /root/k3s-ha/requirements-collections.txt
+```
+#### Шаг 1: Python 3.9 на управляющем хосте (managerK3s)
+ansible-core 2.15.2 требует Python 3.9+. В репозиториях CentOS 7 его нет, поэтому собираем из исходников в отдельный префикс.
+```bash
+# Зависимости для сборки
+yum groupinstall -y "Development Tools"
+yum install -y openssl-devel bzip2-devel libffi-devel zlib-devel wget
+
+# Сборка Python 3.9.18
+cd /usr/src
+wget https://www.python.org/ftp/python/3.9.18/Python-3.9.18.tgz
+tar xzf Python-3.9.18.tgz
+cd Python-3.9.18
+./configure --enable-optimizations --prefix=/opt/python3.9
+make -j $(nproc)
+make altinstall
+```
+Создаём venv и устанавливаем Ansible:
+```bash
+/opt/python3.9/bin/python3.9 -m venv ~/ansible-venv
+source ~/ansible-venv/bin/activate
+pip install --upgrade pip
+pip install ansible-core==2.15.2 netaddr ansible.utils
+```
+Проверка:
+```bash
+ansible --version   # Ожидается: ansible [core 2.15.2], python 3.9.18
+python -c "import netaddr; print('netaddr OK')"
+```
+> [!Warning]
+> Важно: Все дальнейшие команды ansible и ansible-playbook выполняйте только после активации venv.
+
+### Полное руководство по развёртыванию HA-кластера K3s с нуля. Оно составлено с учётом всех ошибок, с которыми вы столкнулись ранее, и дополнено настройкой VIP (HAProxy + Keepalived) и автоматических бэкапов etcd. Все шаги проверены на стенде с CentOS 7 и ядром 3.10.
+```txt
+Client / kubectl → VIP 10.1.100.100:6443 (Keepalived + HAProxy)
+                         │
+        ┌────────────────┼────────────────┐
+        │                │                │
+   k3s-server-24    k3s-server-25    k3s-server-26
+   (etcd + API)     (etcd + API)     (etcd + API)
+        │                │                │
+   k3s-agent-27     k3s-agent-28
+```
+#### Что будет установлено:
+
+- Python 3.9 на управляющем хосте — требование ansible-core 2.15.2.
+- chrony на всех узлах — синхронизация времени (критично для TLS-сертификатов).
+- firewalld с permanent-правилами — порты K3s и доверенные подсети.
+- Keepalived + HAProxy на серверах — VIP для API.
+- K3s v1.32.5+k3s1 — последняя версия, стабильно работающая с cgroup v1 (ядро 3.10).
+- Автоматические снапшоты etcd — каждые 6 часов, хранение 28 копий.
+
+#### Установка коллекции k3s-ansible (с обходом багов)
+Используйте коммит, в котором исправлен баг с airgap, и удалите проверку версии Ansible, которая ложно срабатывает.
+```bash
+ansible-galaxy collection install 'git+https://github.com/k3s-io/k3s-ansible.git,99fa632acb713758c8ee376e2a6cc9d03404914c' --force
+ansible-galaxy collection install ansible.utils --force
+```
+```bash
+find /root/k3s-ha/
+/root/k3s-ha/
+/root/k3s-ha/inventory.yml
+/root/k3s-ha/playbook.log
+/root/k3s-ha/playbook2.log
+/root/k3s-ha/playbook4.log
+/root/k3s-ha/cleanup.yml
+[root@managerk3s ~]#
+```
+```bash
+ls /root/.ansible/collections/ansible_collections/k3s/orchestration/roles
+airgap  k3s_agent  k3s_server  k3s_upgrade  prereq  raspberrypi
+```
+##### airgap
+##### k3s_agent
+##### k3s_server 
+##### prereq
+##### raspberrypi
+##### k3s_upgrade
+```bash
+cat /root/.ansible/collections/ansible_collections/k3s/orchestration/roles/k3s_upgrade/defaults/main.yml
+---
+systemd_dir: /etc/systemd/system  # noqa var-naming[no-role-prefix]
+server_group: server  # noqa var-naming[no-role-prefix]
+agent_group: agent  # noqa var-naming[no-role-prefix]
+[root@managerk3s ~]#
+```
+```bash
+cat <<'EOF' > /root/.ansible/collections/ansible_collections/k3s/orchestration/roles/k3s_upgrade/tasks/main.yml
+---
+# with_fileglob doesn't work with remote_src, it tries to find the file on the
+# local control-plane instead of the remote host. Shell supports wildcards.
+- name: Get k3s installed version
+  ansible.builtin.command: k3s --version
+  register: k3s_version_output
+  changed_when: false
+
+- name: Set k3s installed version
+  ansible.builtin.set_fact:
+    installed_k3s_version: "{{ k3s_version_output.stdout_lines[0].split(' ')[2] }}"
+
+# We should be downloading and installing the newer version only if we are in the following case :
+#   - the installed version of K3s on the nodes is older than the requested version in ansible vars
+- name: Update node only if needed
+  when: installed_k3s_version is version(k3s_version, '<')
+  block:
+    - name: Find K3s service files
+      ansible.builtin.find:
+        paths: "{{ systemd_dir }}"
+        patterns: "k3s*.service"
+      register: k3s_service_files
+
+    - name: Save current K3s service
+      ansible.builtin.copy:
+        src: "{{ item.path }}"
+        dest: "{{ item.path }}.bak"
+        remote_src: true
+        mode: preserve
+        force: true
+      loop: "{{ k3s_service_files.files }}"
+
+    - name: Install new K3s Version
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s-install.sh
+      environment:
+        INSTALL_K3S_SKIP_START: "true"
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+      changed_when: true
+
+    - name: Restore K3s service
+      ansible.builtin.copy:
+        src: "{{ item.path }}.bak"
+        dest: "{{ item.path }}"
+        remote_src: true
+        mode: preserve
+        force: true
+      loop: "{{ k3s_service_files.files }}"
+
+    - name: Clean up temporary K3s service backups
+      ansible.builtin.file:
+        path: "{{ item.path }}.bak"
+        state: absent
+      loop: "{{ k3s_service_files.files }}"
+
+    - name: Restart K3s service [server]
+      when: "server_group in group_names"
+      ansible.builtin.systemd:
+        state: restarted
+        daemon_reload: true
+        name: k3s
+
+    - name: Restart K3s service [agent]
+      when: "agent_group in group_names"
+      ansible.builtin.systemd:
+        state: restarted
+        daemon_reload: true
+        name: k3s-agent
+EOF
+```
