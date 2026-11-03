@@ -233,6 +233,87 @@ ansible-galaxy collection list > /root/k3s-ha/requirements-collections.txt
 pip install -r /root/k3s-ha/requirements-pip.txt
 ansible-galaxy collection install -r /root/k3s-ha/requirements-collections.txt
 ```
+
+### Шаг 2: chrony на всей группе k3s_cluster
+#### 2.1. Установка на managerK3s
+```bash
+yum install -y chrony
+systemctl enable --now chronyd
+```
+#### 2.2. Установка на всех узлах группы k3s_cluster
+```bash
+ansible -i inventory.yml k3s_cluster -m yum -a "name=chrony state=present" -b
+ansible -i inventory.yml k3s_cluster -m systemd -a "name=chronyd state=started enabled=yes" -b
+```
+<img width="1073" height="1106" alt="image" src="https://github.com/user-attachments/assets/a2c8142c-8086-4a77-9395-a4589671b2c8" />
+
+#### 2.3. Проверка синхронизации
+```bash
+ansible -i inventory.yml k3s_cluster -m shell -a "chronyc tracking | grep 'System time'"
+```
+System time должен быть меньше 1 секунды на всех узлах.
+
+```bash
+ansible -i inventory.yml k3s_cluster -m shell -a "date -u '+%Y-%m-%d %H:%M:%S'"
+```
+Все строки различаются не более чем на 2 секунды.
+
+<img width="1076" height="351" alt="image" src="https://github.com/user-attachments/assets/5180ad92-02eb-480a-a692-a5b9aed19253" />
+
+Если chrony не находит NTP-сервер (изолированная сеть) — добавьте в **/etc/chrony.conf** строку server **<внутренний-NTP-IP> iburst** и перезапустите chronyd на всех узлах через k3s_cluster.
+
+### Шаг 3: SSH-доступ и уникальные hostname для k3s_cluster
+#### 3.1. SSH-доступ без пароля
+```bash
+ssh-keygen -t rsa -b 4096   # если ключа ещё нет
+for ip in 24 25 26 27 28; do
+  ssh-copy-id root@10.1.100.$ip
+done
+```
+Проверка через группу k3s_cluster:
+
+```bash
+ansible -i inventory.yml k3s_cluster -m ping
+```
+#### 3.2. Уникальные hostname через k3s_cluster и k3s_hostname
+Используем per-host переменную k3s_hostname из inventory — это самый чистый способ задать разные имена для разных узлов через одну команду.
+
+bash
+ansible -i inventory.yml k3s_cluster -m hostname -a "name={{ k3s_hostname }}" -b
+Проверка:
+
+bash
+ansible -i inventory.yml k3s_cluster -m shell -a "hostname"
+Ожидается:
+
+k3s-server-24, k3s-server-25, k3s-server-26
+
+k3s-agent-27, k3s-agent-28
+
+Критично: уникальные hostname нужны для etcd — иначе узлы .25/.26 получат duplicate node name found и не смогут присоединиться.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #### Шаг 1: Python 3.9 на управляющем хосте (managerK3s)
 ansible-core 2.15.2 требует Python 3.9+. В репозиториях CentOS 7 его нет, поэтому собираем из исходников в отдельный префикс.
 ```bash
