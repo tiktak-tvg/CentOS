@@ -85,48 +85,35 @@ k3s-agent-28
 
 Если третьего сервера нет, можно развернуть минимальный кластер: 1 server + 2 agent (без HA control-plane). В примере ниже показан HA-вариант (3 сервера).
 
-### Шаг 0: Предустановка Ansible 2.15.2 + netaddr + ansible.utils
+### Шаг 1: Предустановка Ansible 2.15.2 + netaddr + ansible.utils
 Этот шаг выполняется только на управляющем хосте managerK3s (10.1.100.10) от root. Узлы кластера на этом этапе не трогаем.
-
-#### 0.1. Учесть старый системный Ansible
-На CentOS 7 через yum install ansible ставится Ansible 2.9.27 на Python 2.7, несовместимый с коллекцией k3s-ansible. Он остаётся в /usr/bin/ansible и /usr/lib/python2.7/site-packages/ansible. Удалять его не нужно — достаточно работать в активированном venv, где /root/ansible-venv/bin/ansible переопределяет системный.
-
-Проверьте, что старый Ansible есть (это нормально):
+#### 1.1. Сборка Python 3.9.18 из исходников
 ```bash
-which -a ansible
-# /usr/bin/ansible — системный 2.9.27
-```
-Никогда не запускайте ansible / ansible-playbook вне активированного venv. Признак корректной работы — приглашение с префиксом (ansible-venv).
-
-#### 0.2. Сборка Python 3.9.18 из исходников
-ansible-core 2.15.2 требует Python ≥ 3.9, которого нет в стандартных репозиториях CentOS 7. Собираем в изолированный префикс /opt/python3.9, не затрагивая системный Python 2.7.
-```bash
-# 1. Зависимости для сборки
 yum groupinstall -y "Development Tools"
 yum install -y openssl-devel bzip2-devel libffi-devel zlib-devel wget
 
-# 2. Скачивание и распаковка
 cd /usr/src
 wget https://www.python.org/ftp/python/3.9.18/Python-3.9.18.tgz
 tar xzf Python-3.9.18.tgz
 cd Python-3.9.18
-
-# 3. Конфигурация и сборка (занимает 10–15 минут)
 ./configure --enable-optimizations --prefix=/opt/python3.9
 make -j $(nproc)
 make altinstall
 ```
-#### Проверка:
+<img width="1072" height="828" alt="image" src="https://github.com/user-attachments/assets/29171343-d73d-4727-b6d8-aaf4129ac0fb" />
+
+Проверка:
 ```bash
-ls /opt/python3.9/bin/
-# Ожидается: python3.9, pip3.9 и другие
 /opt/python3.9/bin/python3.9 --version
-# Ожидается: Python 3.9.18
 ```
+<img width="1073" height="198" alt="image" src="https://github.com/user-attachments/assets/7b5cd189-88a2-4a89-b0d6-baa7fd8a5d69" />
+
 > [!Warning]
 > Важно: используется именно make altinstall, а не make install — чтобы не перезаписать /usr/bin/python и не сломать системные yum/firewalld, которые завязаны на Python 2.7.
+> На CentOS 7 через yum install ansible ставится Ansible 2.9.27 на Python 2.7, несовместимый с коллекцией k3s-ansible. Он остаётся в /usr/bin/ansible и /usr/lib/python2.7/site-packages/ansible.
+> Удалять его не нужно — достаточно работать в активированном venv, где /root/ansible-venv/bin/ansible переопределяет системный.
 
-#### 0.3. Создание виртуального окружения
+#### 1.2. Создание виртуального окружения
 ```bash
 # Убедитесь, что вы НЕ в активированном venv
 # (приглашение без "(ansible-venv)"). Если он активен — deactivate.
@@ -138,14 +125,24 @@ source ~/ansible-venv/bin/activate
 ```ext
 (ansible-venv) [root@managerK3s ~]#
 ```
-Проверка, что venv использует Python 3.9:
+Проверка (обязательна!):
 ```bash
+which python
+# Ожидается: /root/ansible-venv/bin/python
 python --version
-# Ожидается: Python 3.9.18
+# Ожидается: Python 3.9.18 (НЕ 3.8.x!)
 ```
-Типичная ошибка из прошлого: если python --version показывает 3.8.13 — значит venv был создан не на /opt/python3.9/bin/python3.9, а на другом Python. В этом случае удалите ~/ansible-venv и создайте заново из точного пути.
+<img width="1077" height="96" alt="image" src="https://github.com/user-attachments/assets/0c65f2f8-ddea-4e21-a75a-b9f20d1c5ffd" />
 
-#### 0.4. Установка ansible-core 2.15.2 + netaddr
+> [!Warning]
+> Если python --version показывает 3.8.13 — значит, venv создан не на том Python.
+> Причина — активированный SCL (rh-python38) переопределил python.
+> Решение: deactivate, rm -rf ~/ansible-venv, создать заново строго из /opt/python3.9/bin/python3.9.
+
+> [!TIP]
+> Типичная ошибка: если python --version показывает 3.8.13 — значит venv был создан не на /opt/python3.9/bin/python3.9, а на другом Python. В этом случае удалите ~/ansible-venv и создайте заново из точного пути.
+
+#### 1.3. Установка ansible-core 2.15.2 + netaddr и зависимостей
 ```bash
 # Обновление pip
 pip install --upgrade pip
@@ -153,7 +150,10 @@ pip install --upgrade pip
 # Ключевые пакеты
 pip install ansible-core==2.15.2 netaddr
 ```
-Почему ansible-core, а не ansible? ansible-core — это «движок» Ansible (CLI, модули, плагины). Пакет ansible — это мета-пакет, включающий ansible-core + огромный набор коллекций, которые нам не нужны (и которые могут конфликтовать). Официальный способ запускать k3s-ansible — через ansible-core, а нужные коллекции ставим отдельно на Шаге 5.
+<img width="1078" height="768" alt="image" src="https://github.com/user-attachments/assets/45a52c46-105c-42b4-ba12-9c6f17147819" />
+
+> [!TIP] Почему ansible-core, а не ansible?
+> ansible-core — это «движок» Ansible (CLI, модули, плагины). Пакет ansible — это мета-пакет, включающий ansible-core + огромный набор коллекций, которые нам не нужны (и которые могут конфликтовать). Официальный способ запускать k3s-ansible — через ansible-core, а нужные коллекции ставим отдельно на Шаге 5.
 
 #### Проверка:
 ```bash
@@ -162,36 +162,48 @@ pip list | grep -E 'ansible-core|netaddr'
 #   ansible-core   2.15.2
 #   netaddr        1.3.0
 ```
-Зачем netaddr? Фильтр ansible.utils.ipwrap (используется в k3s-ansible для обработки IPv6-адресов) написан на Python и требует библиотеку netaddr. Без неё при запуске playbook'а вы получите Could not load "ansible.utils.ipwrap" или Unrecognized type AnsibleUndefined. Это была ваша ошибка ранее.
-#### 0.5. Проверка версии Ansible
-Самая важная проверка на этом этапе — что ansible в PATH берётся из venv и что версия корректная:
+<img width="1075" height="66" alt="image" src="https://github.com/user-attachments/assets/2f5ce076-27e1-421a-b7ba-aae04dd8611f" />
+
+> [!TIP] Зачем netaddr?
+> Фильтр ansible.utils.ipwrap (используется в k3s-ansible для обработки IPv6-адресов) написан на Python и требует библиотеку netaddr.
+> Без неё при запуске playbook'а вы получите Could not load "ansible.utils.ipwrap" или Unrecognized type AnsibleUndefined.
+
+#### 1.4. Установка служебных коллекций (фиксированные версии)
 ```bash
-which ansible
-# Ожидается: /root/ansible-venv/bin/ansible
-#          (НЕ /usr/bin/ansible!)
+ansible-galaxy collection install ansible.utils --force
+ansible-galaxy collection install 'ansible.posix:==1.5.4' --force
+ansible-galaxy collection install 'community.general:==11.4.5' --force
+```
+> [!TIP] Почему именно так:
+> **ansible.utils 6.1.1** — фильтр ipwrap, без него k3s-ansible падает.
+> **ansible.posix 1.5.4** — совместим с ansible-core 2.15 без warning'ов.
+> **community.general 11.4.5** — последняя версия с поддержкой Python 2.7 (системный на CentOS 7). Версия 12.x падает с SyntaxError в modprobe.py на узлах.
 
+<img width="1075" height="687" alt="image" src="https://github.com/user-attachments/assets/030ce264-865f-41f2-a73c-fd93bd42fbf3" />
+
+#### 1.5. Финальная проверка предустановки
+```bash
+# Версия Ansible
 ansible --version
+
+# Все пути ведут в venv
+which -a ansible ansible-playbook ansible-galaxy python pip
+
+# Python-модули
+python -c "import netaddr; print('netaddr:', netaddr.__version__)"
+python -c "import yaml; print('yaml:', yaml.__version__)"
+
+# Коллекции
+ansible-galaxy collection list | grep -E 'ansible.utils|ansible.posix|community.general'
 ```
-##### Ожидаемый вывод:
-```text
-ansible [core 2.15.2]
-  config file = /etc/ansible/ansible.cfg
-  configured module search path = [...]
-  ansible python module location = /root/ansible-venv/lib/python3.9/site-packages/ansible
-  executable location = /root/ansible-venv/bin/ansible
-  python version = 3.9.18 (main, ...) [GCC 4.8.5 ...] (/root/ansible-venv/bin/python3.9)
-  jinja version = 3.1.6
-  libyaml = True
-```
+
+<img width="1077" height="442" alt="image" src="https://github.com/user-attachments/assets/09c28e00-67e4-49ca-90e4-e9f8ac5ddc1c" />
+
 ##### Признаки корректной установки:
-
-**ansible [core 2.15.2]** — версия правильная
-
-**executable location: /root/ansible-venv/bin/ansible** — берётся из venv
-
-**python version = 3.9.18** — Python правильный
-
-**ansible python module location** — внутри venv
+- **ansible [core 2.15.2]** — версия правильная
+- **executable location: /root/ansible-venv/bin/ansible** — берётся из venv
+- **python version = 3.9.18** — Python правильный
+- **ansible python module location** — внутри venv
 
 Если в выводе фигурирует /usr/bin/ansible или python version = 2.7.5 — venv не активирован или создан не на том Python.
 
@@ -207,11 +219,10 @@ ansible-galaxy collection install 'ansible.posix:==1.5.4' --force
 # 3. community.general — фиксируем 11.4.5, последнюю версию с поддержкой Python 2.7 на узлах
 ansible-galaxy collection install 'community.general:==11.4.5' --force
 ```
-Почему фиксируем версии community.general и ansible.posix?
-
-community.general 12.x использует f-строки (Python ≥ 3.6) и падает с SyntaxError на узлах CentOS 7 с системным Python 2.7 — та самая ошибка modprobe.py, line 108. Версия 11.4.5 — последняя с поддержкой Python 2.7.
-
-ansible.posix 2.x выдаёт warning Collection ansible.posix does not support Ansible version 2.15.2. Версия 1.5.4 работает с 2.15 без предупреждений.
+> [!NOTE] Почему именно так:
+> ansible.utils 6.1.1 — фильтр ipwrap, без него k3s-ansible падает.
+> ansible.posix 1.5.4 — совместим с ansible-core 2.15 без warning'ов.
+> community.general 11.4.5 — последняя версия с поддержкой Python 2.7 (системный на CentOS 7). Версия 12.x падает с SyntaxError в modprobe.py на узлах.
 
 Проверка установленных коллекций:
 ```bash
