@@ -533,12 +533,43 @@ curl -s http://10.1.100.24:8404/stats | grep -E 'k3s-server|UP|DOWN'
 ```
 До установки K3s backend'ы будут DOWN — это нормально. После установки все три станут UP.
 
-### Шаг 6: Финальный inventory с группой k3s_cluster
+### Шаг 6: Cменить порт HAProxy на 16443
+Это стандартная практика для HA-кластеров K3s. HAProxy будет слушать VIP:16443, балансируя на реальные API-серверы IP:6443. K3s будет спокойно занимать 6443 на своём IP.
+
+#### 6.1. Заменить bind *:6443 на bind *:16443 в конфиге HAProxy на всех серверах:
+```bash
+ansible -i inventory.yml server -m lineinfile -a "path=/etc/haproxy/haproxy.cfg regexp='^    bind \*:6443$' line='    bind *:16443'" -b
+```
+#### 6.2. Добавить порт 16443 в SELinux (иначе снова получите cannot bind socket):
+```bash
+ansible -i inventory.yml server -m shell -a "semanage port -a -t http_port_t -p tcp 16443" -b
+```
+Если semanage port -a вернёт ValueError: Port tcp/16443 already defined — используйте -m вместо -a:
+```bash
+ansible -i inventory.yml server -m shell -a "semanage port -m -t http_port_t -p tcp 16443" -b
+```
+#### 6.3. Перезапустить HAProxy (именно stop + start, а не restart — важно для пересоздания сокетов):
+```bash
+ansible -i inventory.yml server -m systemd -a "name=haproxy state=stopped" -b
+ansible -i inventory.yml server -m systemd -a "name=haproxy state=started" -b
+```
+#### 6.4. Проверить, что HAProxy слушает 16443, а 6443 свободен:
+```bash
+ansible -i inventory.yml server -m shell -a "systemctl is-active haproxy; ss -tlnp | grep -E '16443|8404|6443'"
+```
+Ожидается для каждого сервера:
+
+```text
+active
+LISTEN 0 128 *:16443 *:* users:(("haproxy",...))
+LISTEN 0 128 *:8404  *:* users:(("haproxy",...))
+```
+Строки с 6443 не должно быть — порт теперь свободен для K3s.
+
+### Шаг 7: Финальный inventory с группой k3s_cluster
 Перезаписываем inventory.yml, добавляя все переменные, обязательные для k3s-ansible.
 ```bash
 cd /root/k3s-ha
-
-# Генерируем токен
 TOKEN=$(openssl rand -base64 64 | tr -d '\n')
 
 cat > inventory.yml <<EOF
@@ -553,6 +584,7 @@ all:
         k3s_version: v1.32.5+k3s1
         kubeconfig: /root/.kube/config
         api_endpoint: 10.1.100.100
+        api_port: 16443
         token: "${TOKEN}"
         extra_server_args: "--etcd-snapshot-schedule-cron='0 */6 * * *' --etcd-snapshot-retention=28"
         extra_agent_args: ""
@@ -576,28 +608,24 @@ EOF
 
 python -c "import yaml; yaml.safe_load(open('inventory.yml')); print('YAML OK')"
 ```
-Ключевые переменные (на уровне k3s_cluster):
-
-api_endpoint: 10.1.100.100 — VIP, а не IP одного узла.
-
-token — одинаковый для всех узлов.
-
-extra_server_args — включает автоматические снапшоты etcd (каждые 6 часов, хранение 28 копий).
-
-k3s_hostname — per-host переменная, использовалась в Этапе 3.
-
-Проверка структуры группы k3s_cluster:
+Проверка готовности к установке
+Перед ``Шаг 8:`` проверьте всё разом:
 ```bash
-ansible -i inventory.yml k3s_cluster --list-hosts
-# Ожидается 5 хостов
+# 1. HAProxy слушает 16443 и 8404, 6443 свободен
+ansible -i inventory.yml server -m shell -a "ss -tlnp | grep -E '6443|16443|8404'"
 
-ansible -i inventory.yml server --list-hosts
-# Ожидается 3 хоста (.24, .25, .26)
+# 2. VIP на .24
+ssh root@10.1.100.24 "ip a | grep 10.1.100.100"
 
-ansible -i inventory.yml agent --list-hosts
-# Ожидается 2 хоста (.27, .28)
+# 3. VIP доступен на 16443 с manager
+nc -zv 10.1.100.100 16443
+# или curl -k https://10.1.100.100:16443/version
+
+# 4. HAProxy stats: все три backend'а DOWN (K3s ещё не установлен)
+curl -s http://10.1.100.24:8404/stats | grep -E 'k3s-server|DOWN'
 ```
-### Шаг 7: Установка K3s через group k3s_cluster
+
+### Шаг 8: Установка K3s через group k3s_cluster
 ```bash
 cd /root/k3s-ha
 nohup ansible-playbook /root/.ansible/collections/ansible_collections/k3s/orchestration/playbooks/site.yml -i inventory.yml > playbook.log 2>&1 &
@@ -613,8 +641,8 @@ tail -f /root/k3s-ha/playbook.log
 
 Задача Verify that all server nodes joined может временно упасть с certificate signed by unknown authority — это некритично, K3s уже сформировал кластер. Playbook продолжит работу, PLAY RECAP покажет failed=0.
 
-### Шаг 8: Проверки через группу k3s_cluster
-#### 8.1. Кластер
+### Шаг 9: Проверки через группу k3s_cluster
+#### 9.1. Кластер
 ```bash
 kubectl config use-context k3s-ansible
 kubectl get nodes -o wide
@@ -622,7 +650,7 @@ kubectl get --raw='/healthz/etcd'
 kubectl get pods -A
 # Ожидается: 5 узлов Ready, etcd ok, в kube-system все поды Running.
 ```
-#### 8.2. VIP
+#### 9.2. VIP
 ```bash
 nc -zv 10.1.100.100 6443
 # Ожидается: succeeded
@@ -630,7 +658,7 @@ nc -zv 10.1.100.100 6443
 curl -s http://10.1.100.24:8404/stats | grep -E 'k3s-server|UP|DOWN'
 # Все три backend'а — UP
 ```
-#### 8.3. etcd member list (через группу server)
+#### 9.3. etcd member list (через группу server)
 ```bash
 ssh root@10.1.100.24 "etcdctl --endpoints https://127.0.0.1:2379 \
   --cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt \
@@ -639,7 +667,7 @@ ssh root@10.1.100.24 "etcdctl --endpoints https://127.0.0.1:2379 \
   member list -w table"
 # Ожидается: 3 участника (k3s-server-24/25/26), все started.
 ```
-#### 8.4. Бэкапы etcd — первая проверка
+#### 9.4. Бэкапы etcd — первая проверка
 ```bash
 # Ручной снапшот для немедленной проверки
 ssh root@10.1.100.24 "k3s etcd-snapshot save --name manual-$(date +%Y%m%d-%H%M)"
@@ -656,7 +684,7 @@ ssh root@10.1.100.24 "grep -A1 'ExecStart' /etc/systemd/system/k3s.service"
 # В строке ExecStart должны быть --etcd-snapshot-schedule-cron и --etcd-snapshot-retention
 # Автоматические снапшоты начнут появляться после первого запуска cron (0 */6 * * * — в 00:00, 06:00, 12:00, 18:00).
 ```
-### Шаг 9: Failover-тест группы k3s_cluster
+### Шаг 10: Failover-тест группы k3s_cluster
 Терминал 1 — мониторинг через VIP:
 ```bash
 watch -n 2 'kubectl get nodes -o wide; echo "---"; kubectl get --raw="/healthz/etcd"'
