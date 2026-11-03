@@ -586,7 +586,7 @@ all:
         api_endpoint: 10.1.100.100
         api_port: 16443
         token: "${TOKEN}"
-        extra_server_args: "--etcd-snapshot-schedule-cron='0 */6 * * *' --etcd-snapshot-retention=28"
+        extra_server_args: "--tls-san=10.1.100.100 --etcd-snapshot-schedule-cron='0 */6 * * *' --etcd-snapshot-retention=28"
         extra_agent_args: ""
         user_kubectl: true
       children:
