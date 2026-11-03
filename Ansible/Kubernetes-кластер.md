@@ -235,19 +235,87 @@ ansible-galaxy collection install -r /root/k3s-ha/requirements-collections.txt
 ```
 
 ### Шаг 2: chrony на всей группе k3s_cluster
-#### 2.1. Установка на managerK3s
+SSH-доступ и уникальные hostname для k3s_cluster
+#### 2.1. SSH-доступ без пароля
+```bash
+ssh-keygen -t rsa -b 4096   # если ключа ещё нет
+for ip in 24 25 26 27 28; do
+  ssh-copy-id root@10.1.100.$ip
+done
+```
+#### 2.2. Создать inventory.yml
+Выполните эти команды на managerK3s:
+```bash
+mkdir -p /root/k3s-ha
+cd /root/k3s-ha
+
+cat > inventory.yml <<'EOF'
+all:
+  vars:
+    ansible_user: root
+    ansible_port: 22
+
+  children:
+    k3s_cluster:
+      children:
+        server:
+          hosts:
+            10.1.100.24:
+              k3s_hostname: k3s-server-24
+            10.1.100.25:
+              k3s_hostname: k3s-server-25
+            10.1.100.26:
+              k3s_hostname: k3s-server-26
+        agent:
+          hosts:
+            10.1.100.27:
+              k3s_hostname: k3s-agent-27
+            10.1.100.28:
+              k3s_hostname: k3s-agent-28
+EOF
+
+python -c "import yaml; yaml.safe_load(open('inventory.yml')); print('YAML OK')"
+```
+> [!TIP]
+> inventory создаётся минимальный — только группа k3s_cluster, k3s_hostname и ansible_user. Все переменные для K3s (token, api_endpoint, k3s_version, extra_server_args) добавим на следующих шагах.
+
+##### Проверка через группу k3s_cluster:
+```bash
+ansible -i inventory.yml k3s_cluster -m ping
+```
+<img width="1077" height="568" alt="image" src="https://github.com/user-attachments/assets/5a0b8b4f-8a27-4b86-8aeb-4a3d9673e168" />
+
+#### 2.3. Уникальные hostname через k3s_cluster и k3s_hostname
+Используем per-host переменную k3s_hostname из inventory — это самый чистый способ задать разные имена для разных узлов через одну команду.
+```bash
+ansible -i inventory.yml k3s_cluster -m hostname -a "name={{ k3s_hostname }}" -b
+```
+##### Проверка:
+```bash
+ansible -i inventory.yml k3s_cluster -m shell -a "hostname"
+```
+##### Ожидается:
+- k3s-server-24, k3s-server-25, k3s-server-26
+- k3s-agent-27, k3s-agent-28
+
+> [!Warning]
+> Уникальные hostname нужны для etcd — иначе узлы .25/.26 получат duplicate node name found и не смогут присоединиться.
+
+<img width="1073" height="193" alt="image" src="https://github.com/user-attachments/assets/1293af79-8498-424b-9f7b-e0a81263245d" />
+
+#### 2.4. Установка на managerK3s
 ```bash
 yum install -y chrony
 systemctl enable --now chronyd
 ```
-#### 2.2. Установка на всех узлах группы k3s_cluster
+#### 2.5. Установка на всех узлах группы k3s_cluster
 ```bash
 ansible -i inventory.yml k3s_cluster -m yum -a "name=chrony state=present" -b
 ansible -i inventory.yml k3s_cluster -m systemd -a "name=chronyd state=started enabled=yes" -b
 ```
 <img width="1073" height="1106" alt="image" src="https://github.com/user-attachments/assets/a2c8142c-8086-4a77-9395-a4589671b2c8" />
 
-#### 2.3. Проверка синхронизации
+#### 2.6. Проверка синхронизации
 ```bash
 ansible -i inventory.yml k3s_cluster -m shell -a "chronyc tracking | grep 'System time'"
 ```
@@ -262,35 +330,27 @@ ansible -i inventory.yml k3s_cluster -m shell -a "date -u '+%Y-%m-%d %H:%M:%S'"
 
 Если chrony не находит NTP-сервер (изолированная сеть) — добавьте в **/etc/chrony.conf** строку server **<внутренний-NTP-IP> iburst** и перезапустите chronyd на всех узлах через k3s_cluster.
 
-### Шаг 3: SSH-доступ и уникальные hostname для k3s_cluster
-#### 3.1. SSH-доступ без пароля
+### Шаг 3: Firewalld permanent-правила
+Правила должны быть permanent — иначе после перезагрузки они исчезнут, и kubectl «ослепнет».
+
+#### 3.1. Серверы (группа server)
 ```bash
-ssh-keygen -t rsa -b 4096   # если ключа ещё нет
-for ip in 24 25 26 27 28; do
-  ssh-copy-id root@10.1.100.$ip
-done
+ansible -i inventory.yml server -m shell -a "firewall-cmd --permanent --add-port=6443/tcp; firewall-cmd --permanent --add-port=2379/tcp; firewall-cmd --permanent --add-port=2380/tcp; firewall-cmd --permanent --add-port=10250/tcp; firewall-cmd --permanent --add-port=8472/udp; firewall-cmd --permanent --add-port=51820/udp; firewall-cmd --permanent --add-port=51821/udp; firewall-cmd --permanent --add-port=8404/tcp; firewall-cmd --permanent --zone=trusted --add-source=10.42.0.0/16; firewall-cmd --permanent --zone=trusted --add-source=10.43.0.0/16; firewall-cmd --reload" -b
 ```
-Проверка через группу k3s_cluster:
-
+#### 3.2. Агенты (группа agent)
 ```bash
-ansible -i inventory.yml k3s_cluster -m ping
+ansible -i inventory.yml agent -m shell -a "firewall-cmd --permanent --add-port=10250/tcp; firewall-cmd --permanent --add-port=8472/udp; firewall-cmd --permanent --add-port=51820/udp; firewall-cmd --permanent --add-port=51821/udp; firewall-cmd --permanent --zone=trusted --add-source=10.42.0.0/16; firewall-cmd --permanent --zone=trusted --add-source=10.43.0.0/16; firewall-cmd --reload" -b
 ```
-#### 3.2. Уникальные hostname через k3s_cluster и k3s_hostname
-Используем per-host переменную k3s_hostname из inventory — это самый чистый способ задать разные имена для разных узлов через одну команду.
+#### 3.3. Проверка через k3s_cluster
+```bash
+ansible -i inventory.yml k3s_cluster -m shell -a "firewall-cmd --list-ports; firewall-cmd --zone=trusted --list-sources"
+```
+На серверах: 6443/tcp 2379/tcp 2380/tcp 10250/tcp 8472/udp 51820/udp 51821/udp 8404/tcp и 10.42.0.0/16 10.43.0.0/16.
+На агентах: 10250/tcp 8472/udp 51820/udp 51821/udp и 10.42.0.0/16 10.43.0.0/16.
 
-bash
-ansible -i inventory.yml k3s_cluster -m hostname -a "name={{ k3s_hostname }}" -b
-Проверка:
+<img width="1074" height="279" alt="image" src="https://github.com/user-attachments/assets/dd911220-3807-4d5a-a635-5cc2c564dbbe" />
 
-bash
-ansible -i inventory.yml k3s_cluster -m shell -a "hostname"
-Ожидается:
 
-k3s-server-24, k3s-server-25, k3s-server-26
-
-k3s-agent-27, k3s-agent-28
-
-Критично: уникальные hostname нужны для etcd — иначе узлы .25/.26 получат duplicate node name found и не смогут присоединиться.
 
 
 
