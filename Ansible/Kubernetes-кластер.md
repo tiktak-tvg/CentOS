@@ -279,12 +279,35 @@ python -c "import yaml; yaml.safe_load(open('inventory.yml')); print('YAML OK')"
 > [!TIP]
 > inventory создаётся минимальный — только группа k3s_cluster, k3s_hostname и ansible_user. Все переменные для K3s (token, api_endpoint, k3s_version, extra_server_args) добавим на следующих шагах.
 
-##### Проверка через группу k3s_cluster:
+###### Проверка через группу k3s_cluster:
 ```bash
 ansible -i inventory.yml k3s_cluster -m ping
 ```
 <img width="1077" height="568" alt="image" src="https://github.com/user-attachments/assets/5a0b8b4f-8a27-4b86-8aeb-4a3d9673e168" />
 
+###### Проверить структуру групп
+```bash
+cd /root/k3s-ha
+ansible -i inventory.yml k3s_cluster --list-hosts
+```
+Ожидается 5 хостов.
+
+<img width="1075" height="161" alt="image" src="https://github.com/user-attachments/assets/c1b814e3-86f6-47b4-82d1-d5137e80fa10" />
+
+```bash
+ansible -i inventory.yml server --list-hosts
+
+# (ansible-venv) [root@managerk3s k3s-ha]# ansible -i inventory.yml server --list-hosts
+#   hosts (3):
+#     10.1.100.24
+#     10.1.100.25
+#     10.1.100.26
+# (ansible-venv) [root@managerk3s k3s-ha]#
+
+
+ansible -i inventory.yml agent --list-hosts
+# 2 хоста: .27, .28
+```
 #### 2.3. Уникальные hostname через k3s_cluster и k3s_hostname
 Используем per-host переменную k3s_hostname из inventory — это самый чистый способ задать разные имена для разных узлов через одну команду.
 ```bash
@@ -345,74 +368,180 @@ ansible -i inventory.yml agent -m shell -a "firewall-cmd --permanent --add-port=
 ```bash
 ansible -i inventory.yml k3s_cluster -m shell -a "firewall-cmd --list-ports; firewall-cmd --zone=trusted --list-sources"
 ```
-На серверах: 6443/tcp 2379/tcp 2380/tcp 10250/tcp 8472/udp 51820/udp 51821/udp 8404/tcp и 10.42.0.0/16 10.43.0.0/16.
+На серверах: 6443/tcp 2379/tcp 2380/tcp 10250/tcp 8472/udp 51820/udp 51821/udp 8404/tcp и 10.42.0.0/16 10.43.0.0/16.<br>
 На агентах: 10250/tcp 8472/udp 51820/udp 51821/udp и 10.42.0.0/16 10.43.0.0/16.
 
 <img width="1074" height="279" alt="image" src="https://github.com/user-attachments/assets/dd911220-3807-4d5a-a635-5cc2c564dbbe" />
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#### Шаг 1: Python 3.9 на управляющем хосте (managerK3s)
-ansible-core 2.15.2 требует Python 3.9+. В репозиториях CentOS 7 его нет, поэтому собираем из исходников в отдельный префикс.
+### Шаг 4: Коллекция k3s-ansible с обходом багов
+#### 4.1. Установка из коммита с фиксом airgap
 ```bash
-# Зависимости для сборки
-yum groupinstall -y "Development Tools"
-yum install -y openssl-devel bzip2-devel libffi-devel zlib-devel wget
-
-# Сборка Python 3.9.18
-cd /usr/src
-wget https://www.python.org/ftp/python/3.9.18/Python-3.9.18.tgz
-tar xzf Python-3.9.18.tgz
-cd Python-3.9.18
-./configure --enable-optimizations --prefix=/opt/python3.9
-make -j $(nproc)
-make altinstall
+ansible-galaxy collection install 'git+https://github.com/k3s-io/k3s-ansible.git,99fa632acb713758c8ee376e2a6cc9d03404914c' --force
 ```
-Создаём venv и устанавливаем Ansible:
+#### 4.2. Обнуление роли airgap
+Версия 1.0.0 падает с No file was found when using first_found на airgap-задачах даже при онлайн-установке.
 ```bash
-/opt/python3.9/bin/python3.9 -m venv ~/ansible-venv
-source ~/ansible-venv/bin/activate
-pip install --upgrade pip
-pip install ansible-core==2.15.2 netaddr ansible.utils
+cat > /root/.ansible/collections/ansible_collections/k3s/orchestration/roles/airgap/tasks/main.yml <<'EOF'
+---
+# Airgap role disabled: online installation
+EOF
+```
+#### 4.3. Удаление ложной проверки версии Ansible
+```bash
+cd /root/.ansible/collections/ansible_collections/k3s/orchestration/roles/prereq/tasks/
+
+python <<'PYEOF'
+import re
+with open('main.yml') as f:
+    content = f.read()
+pattern = re.compile(r'\n[ ]*- name: Enforce minimum Ansible version\n.*?(?=\n[ ]*- name:|\Z)', re.DOTALL)
+new_content, n = pattern.subn('', content)
+with open('main.yml', 'w') as f:
+    f.write(new_content)
+print(f"Removed {n} block(s)")
+PYEOF
 ```
 Проверка:
 ```bash
-ansible --version   # Ожидается: ansible [core 2.15.2], python 3.9.18
-python -c "import netaddr; print('netaddr OK')"
+grep -r 'Enforce minimum Ansible version' /root/.ansible/collections/ansible_collections/k3s/orchestration/roles/prereq/tasks/ 
+# Ничего не должно вывести
+
+grep -c 'name:' /root/.ansible/collections/ansible_collections/k3s/orchestration/roles/airgap/tasks/main.yml
+# Ожидается: 0
 ```
-> [!Warning]
-> Важно: Все дальнейшие команды ansible и ansible-playbook выполняйте только после активации venv.
+<img width="1077" height="101" alt="image" src="https://github.com/user-attachments/assets/9e600dac-313f-4140-ba20-a9d59304e672" />
 
-Создать inventory.yml
-Выполните эти команды на managerK3s:
+### Шаг 5: VIP — HAProxy + Keepalived
+#### 5.1. Установка пакетов на группу server
+```bash
+ansible -i inventory.yml server -m yum -a "name=haproxy,keepalived state=present" -b
+```
+#### 5.2. HAProxy — общий конфиг для группы server
+```bash
+cat > /tmp/haproxy.cfg <<'EOF'
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /var/run/haproxy.admin level admin
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+    maxconn 2000
 
-bash
-mkdir -p /root/k3s-ha
+defaults
+    log global
+    mode tcp
+    option tcplog
+    option dontlognull
+    timeout connect 5000
+    timeout client  50000
+    timeout server  50000
+
+listen stats
+    bind *:8404
+    mode http
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+
+frontend k3s-api
+    bind *:6443
+    mode tcp
+    default_backend k3s-servers
+
+backend k3s-servers
+    mode tcp
+    balance roundrobin
+    option tcp-check
+    server k3s-server-24 10.1.100.24:6443 check fall 3 rise 2
+    server k3s-server-25 10.1.100.25:6443 check fall 3 rise 2
+    server k3s-server-26 10.1.100.26:6443 check fall 3 rise 2
+EOF
+```
+```bash
+ansible -i inventory.yml server -m copy -a "src=/tmp/haproxy.cfg dest=/etc/haproxy/haproxy.cfg owner=root group=root mode=0644" -b
+```
+#### 5.3. Keepalived — три конфига с разными приоритетами
+```bash
+# Проверьте имя интерфейса
+ansible -i inventory.yml server -m shell -a "ip -o link show | awk -F': ' '{print \$2}' | grep -v lo"
+
+# Ожидается: ens33 (на всех серверах одинаково)
+```
+Шаблон базового конфига (.24 — MASTER, priority 100):
+```bash
+cat > /tmp/keepalived-24.conf <<'EOF'
+global_defs {
+    router_id K3S_VIP_24
+    script_user root
+    enable_script_security
+}
+
+vrrp_script chk_haproxy {
+    script "/usr/bin/killall -0 haproxy"
+    interval 2
+    weight -30
+    fall 3
+    rise 2
+}
+
+vrrp_instance VI_K3S {
+    state MASTER
+    interface ens33
+    virtual_router_id 51
+    priority 100
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass K3sVIP123
+    }
+    virtual_ipaddress {
+        10.1.100.100/24
+    }
+    track_script {
+        chk_haproxy
+    }
+}
+EOF
+```
+Варианты для .25 и .26:
+```bash
+sed 's/K3S_VIP_24/K3S_VIP_25/; s/state MASTER/state BACKUP/; s/priority 100/priority 90/' /tmp/keepalived-24.conf > /tmp/keepalived-25.conf
+sed 's/K3S_VIP_24/K3S_VIP_26/; s/state MASTER/state BACKUP/; s/priority 100/priority 80/' /tmp/keepalived-24.conf > /tmp/keepalived-26.conf
+```
+Распространение по узлам (через группу server, но с разными файлами):
+```bash
+scp /tmp/keepalived-24.conf root@10.1.100.24:/etc/keepalived/keepalived.conf
+scp /tmp/keepalived-25.conf root@10.1.100.25:/etc/keepalived/keepalived.conf
+scp /tmp/keepalived-26.conf root@10.1.100.26:/etc/keepalived/keepalived.conf
+```
+#### 5.4. Запуск сервисов на группе server
+```bash
+ansible -i inventory.yml server -m systemd -a "name=haproxy state=started enabled=yes" -b
+ansible -i inventory.yml server -m systemd -a "name=keepalived state=started enabled=yes" -b
+```
+#### 5.5. Проверка VIP
+```bash
+# VIP должен быть на .24 (MASTER)
+ssh root@10.1.100.24 "ip a show ens33 | grep 10.1.100.100"
+# Ожидается: inet 10.1.100.100/24 scope global secondary ens33
+
+# HAProxy stats
+curl -s http://10.1.100.24:8404/stats | grep -E 'k3s-server|UP|DOWN'
+```
+До установки K3s backend'ы будут DOWN — это нормально. После установки все три станут UP.
+
+### Шаг 6: Финальный inventory с группой k3s_cluster
+Перезаписываем inventory.yml, добавляя все переменные, обязательные для k3s-ansible.
+```bash
 cd /root/k3s-ha
 
-cat > inventory.yml <<'EOF'
+# Генерируем токен
+TOKEN=$(openssl rand -base64 64 | tr -d '\n')
+
+cat > inventory.yml <<EOF
 all:
   vars:
     ansible_user: root
@@ -420,6 +549,14 @@ all:
 
   children:
     k3s_cluster:
+      vars:
+        k3s_version: v1.32.5+k3s1
+        kubeconfig: /root/.kube/config
+        api_endpoint: 10.1.100.100
+        token: "${TOKEN}"
+        extra_server_args: "--etcd-snapshot-schedule-cron='0 */6 * * *' --etcd-snapshot-retention=28"
+        extra_agent_args: ""
+        user_kubectl: true
       children:
         server:
           hosts:
@@ -438,27 +575,175 @@ all:
 EOF
 
 python -c "import yaml; yaml.safe_load(open('inventory.yml')); print('YAML OK')"
+```
+Ключевые переменные (на уровне k3s_cluster):
 
-> [!TIP]
-> inventory создаётся минимальный — только группа k3s_cluster, k3s_hostname и ansible_user. Все переменные для K3s (token, api_endpoint, k3s_version, extra_server_args) добавим в Этапе 7, после настройки VIP.
+api_endpoint: 10.1.100.100 — VIP, а не IP одного узла.
 
-Проверить структуру групп
+token — одинаковый для всех узлов.
+
+extra_server_args — включает автоматические снапшоты etcd (каждые 6 часов, хранение 28 копий).
+
+k3s_hostname — per-host переменная, использовалась в Этапе 3.
+
+Проверка структуры группы k3s_cluster:
 ```bash
 ansible -i inventory.yml k3s_cluster --list-hosts
-```
-Ожидается 5 хостов.
+# Ожидается 5 хостов
 
-```bash
 ansible -i inventory.yml server --list-hosts
-# 3 хоста: .24, .25, .26
+# Ожидается 3 хоста (.24, .25, .26)
 
 ansible -i inventory.yml agent --list-hosts
-# 2 хоста: .27, .28
+# Ожидается 2 хоста (.27, .28)
 ```
+### Шаг 7: Установка K3s через group k3s_cluster
+```bash
+cd /root/k3s-ha
+nohup ansible-playbook /root/.ansible/collections/ansible_collections/k3s/orchestration/playbooks/site.yml -i inventory.yml > playbook.log 2>&1 &
+echo "PID: $!"
 
-<img width="1075" height="807" alt="image" src="https://github.com/user-attachments/assets/16bd3ade-8617-4401-a4bb-39443fe1670c" />
+tail -f /root/k3s-ha/playbook.log
+```
+Что важно помнить:
 
-### Полное руководство по развёртыванию HA-кластера K3s с нуля. Оно составлено с учётом всех ошибок, с которыми вы столкнулись ранее, и дополнено настройкой VIP (HAProxy + Keepalived) и автоматических бэкапов etcd. Все шаги проверены на стенде с CentOS 7 и ядром 3.10.
+На задаче Enable and check K3s service для .24 будет пауза 30–90 секунд — инициализация etcd. Не нажимайте Ctrl+C.
+
+В логах .24 (ssh root@10.1.100.24 "journalctl -u k3s -f") появятся строки Serving HTTP bootstrap from datastore for 10.1.100.25/26 — признак, что etcd готов принимать остальные узлы.
+
+Задача Verify that all server nodes joined может временно упасть с certificate signed by unknown authority — это некритично, K3s уже сформировал кластер. Playbook продолжит работу, PLAY RECAP покажет failed=0.
+
+### Шаг 8: Проверки через группу k3s_cluster
+#### 8.1. Кластер
+```bash
+kubectl config use-context k3s-ansible
+kubectl get nodes -o wide
+kubectl get --raw='/healthz/etcd'
+kubectl get pods -A
+# Ожидается: 5 узлов Ready, etcd ok, в kube-system все поды Running.
+```
+#### 8.2. VIP
+```bash
+nc -zv 10.1.100.100 6443
+# Ожидается: succeeded
+
+curl -s http://10.1.100.24:8404/stats | grep -E 'k3s-server|UP|DOWN'
+# Все три backend'а — UP
+```
+#### 8.3. etcd member list (через группу server)
+```bash
+ssh root@10.1.100.24 "etcdctl --endpoints https://127.0.0.1:2379 \
+  --cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt \
+  --cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt \
+  --key /var/lib/rancher/k3s/server/tls/etcd/server-client.key \
+  member list -w table"
+# Ожидается: 3 участника (k3s-server-24/25/26), все started.
+```
+#### 8.4. Бэкапы etcd — первая проверка
+```bash
+# Ручной снапшот для немедленной проверки
+ssh root@10.1.100.24 "k3s etcd-snapshot save --name manual-$(date +%Y%m%d-%H%M)"
+
+# Список снапшотов
+ssh root@10.1.100.24 "ls -lh /var/lib/rancher/k3s/server/db/snapshots/"
+
+# Ожидается файл manual-YYYYMMDD-HHMM размером ~1–2 MB.
+```
+Проверка, что cron настроен:
+```bash
+ssh root@10.1.100.24 "grep -A1 'ExecStart' /etc/systemd/system/k3s.service"
+
+# В строке ExecStart должны быть --etcd-snapshot-schedule-cron и --etcd-snapshot-retention
+# Автоматические снапшоты начнут появляться после первого запуска cron (0 */6 * * * — в 00:00, 06:00, 12:00, 18:00).
+```
+### Шаг 9: Failover-тест группы k3s_cluster
+Терминал 1 — мониторинг через VIP:
+```bash
+watch -n 2 'kubectl get nodes -o wide; echo "---"; kubectl get --raw="/healthz/etcd"'
+```
+Терминал 2 — отключаем .24:
+```bash
+ssh root@10.1.100.24 "systemctl stop k3s"
+```
+Наблюдайте:
+
+Время	Ожидаемое поведение
+0–30 сек	.24 → NotReady, kubectl продолжает отвечать (через VIP на .25/.26)
+30–60 сек	Keepalived переключает VIP на .25 (или .26), HAProxy исключает backend .24
+Всё время	.25, .26, .27, .28 — Ready, /healthz/etcd → ok
+
+Проверка записи в API через VIP:
+```bash
+kubectl create deployment test-ha --image=nginx
+kubectl get deployment test-ha
+kubectl scale deployment test-ha --replicas=2
+kubectl get pods -l app=test-ha
+```
+Возврат .24:
+```bash
+ssh root@10.1.100.24 "systemctl start k3s"
+sleep 45
+
+# VIP вернулся на MASTER
+ssh root@10.1.100.24 "ip a show ens33 | grep 10.1.100.100"
+
+# Узел снова Ready
+kubectl get nodes
+```
+Очистка теста:
+```bash
+kubectl delete deployment test-ha
+```
+### Финальный чек-лист
+Проверка	Команда	Ожидание
+Все узлы k3s_cluster Ready	kubectl get nodes	5 × Ready
+etcd кворум 3/3	kubectl get --raw='/healthz/etcd'	ok
+VIP доступен	nc -zv 10.1.100.100 6443	succeeded
+HAProxy backend'ы	curl -s http://10.1.100.24:8404/stats	3 × UP
+chrony синхронизирован	chronyc tracking на каждом узле	System time < 1s
+firewalld permanent	firewall-cmd --list-ports	все нужные порты
+Бэкапы etcd	ls /var/lib/rancher/k3s/server/db/snapshots/	файлы есть
+Failover	Отключить .24 → kubectl работает	да
+### Учтённые ошибки прошлых итераций
+Ошибка	Решение в руководстве
+first_found в airgap падает	Роль airgap обнулена (Этап 5.2)
+Enforce minimum Ansible version ложно срабатывает	Задача удалена (Этап 5.3)
+ansible_user is undefined	Задана в inventory на уровне all.vars (Этапы 0.1, 7)
+token/extra_server_args undefined	Заданы в k3s_cluster.vars (Этап 7)
+ipwrap не работает	netaddr + ansible.utils установлены (Этап 1)
+SyntaxError в modprobe.py на CentOS 7	community.general 11.4.5 (Этап 1.4)
+duplicate node name found	Уникальные hostname через k3s_hostname (Этап 3.2) + cleanup (Этап 0)
+Сертификат «из будущего»	chrony на k3s_cluster (Этап 2) + cleanup (Этап 0)
+no route to host на 6443	permanent-правила firewalld (Этап 4)
+kubectl падает при отказе .24	VIP через HAProxy + Keepalived (Этап 6)
+venv создан не на том Python	Явная проверка python --version (Этап 1.2)
+Старые пропатченные коллекции конфликтуют	rm -rf /root/.ansible/collections/ansible_collections/ (Этап 0.4)
+Старый kubeconfig с мёртвым IP	rm -rf /root/.kube/ (Этап 0.6)
+### После успешного развёртывания
+Git-репозиторий — сохраните inventory.yml, cleanup.yml, requirements-pip.txt, requirements-collections.txt и это руководство.
+
+Ansible Vault — вынесите token из inventory.yml в group_vars/all/vault.yml (ansible-vault encrypt).
+
+Внешние бэкапы — настройте rsync/S3 для /var/lib/rancher/k3s/server/db/snapshots/.
+
+Мониторинг — kube-prometheus-stack через Helm.
+
+Ingress и TLS — cert-manager + Let's Encrypt для Traefik.
+
+Миграция на AlmaLinux/Rocky 9 — CentOS 7 + ядро 3.10 рабочие, но K3s 1.33+ потребует cgroup v2. Зафиксируйте v1.32.5+k3s1 и планируйте переезд.
+
+Всё руководство использует группу k3s_cluster как единую точку приложения команд (с точечным разделением на server/agent там, где это действительно нужно — firewalld, keepalived). Это делает управление кластером единообразным и упрощает будущие операции (обновления, патчи, аудит).
+
+
+
+
+
+
+
+
+
+
+### Полное описание конфигов по развёртыванию HA-кластера K3s.
 ```txt
 Client / kubectl → VIP 10.1.100.100:6443 (Keepalived + HAProxy)
                          │
@@ -469,16 +754,8 @@ Client / kubectl → VIP 10.1.100.100:6443 (Keepalived + HAProxy)
         │                │                │
    k3s-agent-27     k3s-agent-28
 ```
-#### Что будет установлено:
 
-- Python 3.9 на управляющем хосте — требование ansible-core 2.15.2.
-- chrony на всех узлах — синхронизация времени (критично для TLS-сертификатов).
-- firewalld с permanent-правилами — порты K3s и доверенные подсети.
-- Keepalived + HAProxy на серверах — VIP для API.
-- K3s v1.32.5+k3s1 — последняя версия, стабильно работающая с cgroup v1 (ядро 3.10).
-- Автоматические снапшоты etcd — каждые 6 часов, хранение 28 копий.
-
-#### Установка коллекции k3s-ansible (с обходом багов)
+#### Установка коллекции k3s-ansible
 Используйте коммит, в котором исправлен баг с airgap, и удалите проверку версии Ansible, которая ложно срабатывает.
 ```bash
 ansible-galaxy collection install 'git+https://github.com/k3s-io/k3s-ansible.git,99fa632acb713758c8ee376e2a6cc9d03404914c' --force
