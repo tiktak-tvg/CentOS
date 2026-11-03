@@ -197,8 +197,7 @@ ansible [core 2.15.2]
 
 #### 0.6. Установка обязательных Ansible-коллекций
 Помимо k3s-ansible (Шаг 5) нужны три служебные коллекции:
-
-bash
+```bash
 # 1. ansible.utils — содержит плагин ipwrap (требуется k3s-ansible)
 ansible-galaxy collection install ansible.utils --force
 
@@ -207,6 +206,7 @@ ansible-galaxy collection install 'ansible.posix:==1.5.4' --force
 
 # 3. community.general — фиксируем 11.4.5, последнюю версию с поддержкой Python 2.7 на узлах
 ansible-galaxy collection install 'community.general:==11.4.5' --force
+```
 Почему фиксируем версии community.general и ansible.posix?
 
 community.general 12.x использует f-строки (Python ≥ 3.6) и падает с SyntaxError на узлах CentOS 7 с системным Python 2.7 — та самая ошибка modprobe.py, line 108. Версия 11.4.5 — последняя с поддержкой Python 2.7.
@@ -290,6 +290,59 @@ python -c "import netaddr; print('netaddr OK')"
 ```
 > [!Warning]
 > Важно: Все дальнейшие команды ansible и ansible-playbook выполняйте только после активации venv.
+
+Создать inventory.yml
+Выполните эти команды на managerK3s:
+
+bash
+mkdir -p /root/k3s-ha
+cd /root/k3s-ha
+
+cat > inventory.yml <<'EOF'
+all:
+  vars:
+    ansible_user: root
+    ansible_port: 22
+
+  children:
+    k3s_cluster:
+      children:
+        server:
+          hosts:
+            10.1.100.24:
+              k3s_hostname: k3s-server-24
+            10.1.100.25:
+              k3s_hostname: k3s-server-25
+            10.1.100.26:
+              k3s_hostname: k3s-server-26
+        agent:
+          hosts:
+            10.1.100.27:
+              k3s_hostname: k3s-agent-27
+            10.1.100.28:
+              k3s_hostname: k3s-agent-28
+EOF
+
+python -c "import yaml; yaml.safe_load(open('inventory.yml')); print('YAML OK')"
+
+> [!TIP]
+> inventory создаётся минимальный — только группа k3s_cluster, k3s_hostname и ansible_user. Все переменные для K3s (token, api_endpoint, k3s_version, extra_server_args) добавим в Этапе 7, после настройки VIP.
+
+Проверить структуру групп
+```bash
+ansible -i inventory.yml k3s_cluster --list-hosts
+```
+Ожидается 5 хостов.
+
+```bash
+ansible -i inventory.yml server --list-hosts
+# 3 хоста: .24, .25, .26
+
+ansible -i inventory.yml agent --list-hosts
+# 2 хоста: .27, .28
+```
+
+<img width="1075" height="807" alt="image" src="https://github.com/user-attachments/assets/16bd3ade-8617-4401-a4bb-39443fe1670c" />
 
 ### Полное руководство по развёртыванию HA-кластера K3s с нуля. Оно составлено с учётом всех ошибок, с которыми вы столкнулись ранее, и дополнено настройкой VIP (HAProxy + Keepalived) и автоматических бэкапов etcd. Все шаги проверены на стенде с CentOS 7 и ядром 3.10.
 ```txt
