@@ -464,6 +464,8 @@ kubectl get pods -A
 ```
 Ожидается: 5 узлов Ready, /healthz/etcd → ok, все поды в kube-system — Running.
 
+<img width="1082" height="458" alt="image" src="https://github.com/user-attachments/assets/a1f31182-c9c5-4f81-9fca-17fbe977daa6" />
+
 #### 10.2. VIP и HAProxy
 ```bash
 # Проверка API через VIP
@@ -471,13 +473,133 @@ curl -k https://10.1.100.100:16443/version
 # Ожидается: HTTP 401 Unauthorized (нормально, без токена)
 
 # HAProxy stats: все три backend'а UP
-curl -s http://10.1.100.24:8404/stats | grep -E 'k3s-server|UP|DOWN'
+curl -s "http://10.1.100.24:8404/stats;csv" | awk -F',' '$1=="k3s-servers" && $2!="BACKEND" && $2!="FRONTEND" {print $2, $18, $19}'
+
+# Скрипт для регулярного мониторинга
+cat > /root/k3s-ha/check-backends.sh <<'SCRIPT'
+#!/bin/bash
+# Проверка статуса backend'ов HAProxy для K3s
+VIP_STATS="http://10.1.100.24:8404/stats;csv"
+
+curl -s "$VIP_STATS" | awk -F',' '
+    # Пропускаем сводные строки BACKEND/FRONTEND (в этой версии HAProxy они в верхнем регистре)
+    tolower($2) == "backend" || tolower($2) == "frontend" { next }
+
+    # Обрабатываем только серверы блока k3s-servers
+    $1 == "k3s-servers" {
+        check = ($19 == "1") ? "OK" : "FAIL"
+        printf "%-18s %-8s check=%s\n", $2, $18, check
+        if ($18 == "UP") up++
+        total++
+    }
+
+    END {
+        printf "\nTotal: %d, UP: %d\n", total, up
+        exit (up == total && total > 0) ? 0 : 1
+    }
+'
+SCRIPT
+
+chmod +x /root/k3s-ha/check-backends.sh
+/root/k3s-ha/check-backends.sh
 ```
-#### 10.3. etcd member list
+
+<img width="1077" height="304" alt="image" src="https://github.com/user-attachments/assets/6a9b1db9-06f8-49a1-8a0d-ad6b7603d6ff" />
+
+##### Быстрая проверка без etcdctl
+K3s предоставляет собственные команды для работы со встроенным etcd. Они не показывают полный список участников, но позволяют убедиться, что etcd жив и является лидером.
 ```bash
-ssh root@10.1.100.24 "k3s etcdctl member list -w table"
-# Ожидается: 3 участника (k3s-server-24/25/26), все started
+# 1. Проверить здоровье etcd (самый быстрый способ)
+ssh root@10.1.100.24 "k3s kubectl get --raw='/healthz/etcd'"
+# Ожидается: ok
+
+# 2. Посмотреть список снапшотов etcd (подтверждает, что etcd работает и сохраняет данные)
+ssh root@10.1.100.24 "k3s etcd-snapshot ls"
+
+# 3. Проверить, что все серверы имеют роль etcd
+kubectl get nodes -o wide
+
+# В колонке ROLES у всех трёх серверов должно быть: control-plane,etcd,master
 ```
+
+<img width="1081" height="351" alt="image" src="https://github.com/user-attachments/assets/537ba303-bd03-4616-9111-26450907b746" />
+
+#### 10.3. etcd
+Установка etcdctl на managerK3s
+
+Скачайте и установите утилиту. Версия 3.5.x совместима с etcd в K3s v1.32.
+```bash
+ETCD_VER=v3.5.15
+curl -L https://github.com/etcd-io/etcd/releases/download/${ETCD_VER}/etcd-${ETCD_VER}-linux-amd64.tar.gz -o /tmp/etcd.tar.gz
+tar xzf /tmp/etcd.tar.gz -C /tmp
+sudo cp /tmp/etcd-${ETCD_VER}-linux-amd64/etcdctl /usr/local/bin/
+sudo chmod +x /usr/local/bin/etcdctl
+etcdctl version
+```
+Копирование сертификатов с узла .24
+
+Для аутентификации нужны три файла: CA, клиентский сертификат и ключ. Скопируйте их с любого управляющего узла (например, с .24) на managerK3s.
+```bash
+mkdir -p /root/k3s-etcd-certs
+scp root@10.1.100.24:/var/lib/rancher/k3s/server/tls/etcd/server-ca.crt /root/k3s-etcd-certs/
+scp root@10.1.100.24:/var/lib/rancher/k3s/server/tls/etcd/server-client.crt /root/k3s-etcd-certs/
+scp root@10.1.100.24:/var/lib/rancher/k3s/server/tls/etcd/server-client.key /root/k3s-etcd-certs/
+```
+Проверка состояния etcd
+
+Теперь можно выполнять команды etcdctl с managerK3s, указав IP-адрес узла .24 в качестве эндпоинта. Это стандартная практика для удалённого подключения к etcd по IP-адресу.
+```bash
+ETCDCTL_API=3 etcdctl member list -w table \
+  --endpoints=https://10.1.100.24:2379 \
+  --cacert=/root/k3s-etcd-certs/server-ca.crt \
+  --cert=/root/k3s-etcd-certs/server-client.crt \
+  --key=/root/k3s-etcd-certs/server-client.key
+```
+Ожидаемый результат — таблица с тремя участниками (k3s-server-24/25/26), все в статусе started.
+
+<img width="1077" height="516" alt="image" src="https://github.com/user-attachments/assets/5b3d7298-68ce-4529-9dcc-15e01ea996d5" />
+
+##### Добавим удобства: alias и health-чек
+Вводить длинную команду с шестью флагами каждый раз неудобно. Настройте переменные окружения и функцию/alias.
+
+1. Переменные окружения — добавьте в ~/.bashrc:
+```bash
+cat >> ~/.bashrc <<'EOF'
+# etcdctl для K3s HA-кластера
+export ETCDCTL_API=3
+export ETCDCTL_ENDPOINTS=https://10.1.100.24:2379
+export ETCDCTL_CACERT=/root/k3s-etcd-certs/server-ca.crt
+export ETCDCTL_CERT=/root/k3s-etcd-certs/server-client.crt
+export ETCDCTL_KEY=/root/k3s-etcd-certs/server-client.key
+
+# Alias для быстрых проверок
+alias etcd-members='etcdctl member list -w table'
+alias etcd-health='etcdctl endpoint health --cluster'
+alias etcd-status='etcdctl endpoint status --cluster -w table'
+EOF
+
+source ~/.bashrc
+```
+2. Теперь проверки — в одну строку:
+```bash
+# Участники
+etcd-members
+
+# Здоровье всех участников
+etcd-health
+```
+Ожидается:
+
+<img width="1187" height="413" alt="image" src="https://github.com/user-attachments/assets/0c647a93-e1ab-43d8-92e0-f379ae787246" />
+
+3. Статус кластера (лидер, raft-индекс, размер БД):
+```bash
+etcd-status
+```
+Ожидается примерно:
+
+<img width="1189" height="125" alt="image" src="https://github.com/user-attachments/assets/a4539f6a-0f99-43be-afd2-122138f08916" />
+
 #### 10.4. Бэкапы etcd
 ```bash
 # Ручной снапшот для проверки
@@ -488,6 +610,9 @@ ssh root@10.1.100.24 "ls -lh /var/lib/rancher/k3s/server/db/snapshots/"
 ssh root@10.1.100.24 "grep -A1 'ExecStart' /etc/systemd/system/k3s.service"
 # В строке ExecStart должны быть --etcd-snapshot-schedule-cron и --etcd-snapshot-retention
 ```
+
+<img width="1179" height="187" alt="image" src="https://github.com/user-attachments/assets/69bda104-9950-4548-a6bc-a24730c685b1" />
+
 ### Этап 11: Failover-тест
 ##### Терминал 1 — мониторинг через VIP:
 ```bash
