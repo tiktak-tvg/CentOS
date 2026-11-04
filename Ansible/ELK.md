@@ -453,14 +453,8 @@ Save
 
 Discover → выберите filebeat-* → Last 15 minutes → видны логи с 6 хостов
 
-Полезные запросы в Discover:
-
-``text
-host.name: "k3s-server-24" and message: "error"
-kubernetes.container.name: "traefik"
-host.name: "k3s-agent-*"
-```
 ### Итоговый чек-лист
+
 Проверка	|Команда	|Ожидание
 --------- | ------- | -------------
 Java 11	 |java -version	 |11.0.x
