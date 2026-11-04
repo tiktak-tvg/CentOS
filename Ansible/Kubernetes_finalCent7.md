@@ -461,8 +461,9 @@ kubectl config use-context k3s-ansible
 kubectl get nodes -o wide
 kubectl get --raw='/healthz/etcd'
 kubectl get pods -A
-Ожидается: 5 узлов Ready, /healthz/etcd → ok, все поды в kube-system — Running.
 ```
+Ожидается: 5 узлов Ready, /healthz/etcd → ok, все поды в kube-system — Running.
+
 #### 10.2. VIP и HAProxy
 ```bash
 # Проверка API через VIP
