@@ -145,7 +145,7 @@ EOF
 bash /tmp/elk-predownload.sh
 ```
 > [!Warning]
-> официальный artifacts.elastic.co блокирует запросы из РФ (403). Aliyun — проверенно работает.
+> официальный artifacts.elastic.co блокирует запросы из РФ (403). Aliyun — проверенно работает. Или ``https://cdimage.debian.org/mirror/elrepo.org``
 
 ### Этап 4: Elasticsearch 7.17.29
 ```bash
